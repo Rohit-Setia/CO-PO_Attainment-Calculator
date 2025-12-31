@@ -6,87 +6,63 @@ import * as XLSX from "xlsx"
 const COS = ["co1", "co2", "co3", "co4", "co5"]
 
 /* =========================
-   NORMALIZE TEXT
+   NORMALIZE
 ========================= */
 const norm = (v = "") =>
   String(v).toLowerCase().replace(/[\s._-]/g, "")
 
 /* =========================
-   MERGE HEADER ROWS
-   (for complex Excel, but safe for simple)
+   FIND ROW CONTAINING A KEY
 ========================= */
-const mergeRows = (rows, start, depth = 3) => {
-  const merged = []
-  const baseRow = rows[start] || []
+const findRowWith = (rows, matcher) =>
+  rows.findIndex((row) => row.map(norm).some(matcher))
 
-  for (let c = 0; c < baseRow.length; c++) {
-    let value = ""
-    for (let r = start; r < start + depth && rows[r]; r++) {
-      const cell = rows[r][c]
-      if (cell !== undefined && cell !== null && String(cell).trim() !== "") {
-        value += norm(cell)
-      }
-    }
-    merged[c] = value
-  }
+/* =========================
+   DETECT HEADER ROWS (HYBRID)
+========================= */
+export const detectHeaderRows = (rows) => {
+  const nameRow = findRowWith(rows, (c) =>
+    c === "name" || c === "student" || c === "studentname"
+  )
 
-  return merged
+  const coRow = findRowWith(rows, (c) =>
+    c === "co1" || c === "courseoutcome1"
+  )
+
+  if (nameRow === -1 || coRow === -1) return null
+
+  return { nameRow, coRow }
 }
 
 /* =========================
-   DETECT HEADER ROW
+   BUILD COLUMN MAP (STRICT)
 ========================= */
-export const detectHeaderRow = (rows) => {
-  let bestIndex = -1
-  let bestScore = 0
-
-  for (let i = 0; i < rows.length; i++) {
-    const merged = mergeRows(rows, i)
-
-    let score = 0
-
-    if (merged.some((c) => c.includes("name"))) score += 3
-    if (merged.some((c) => c.includes("reg") || c.includes("roll"))) score += 2
-
-    const coCount = COS.filter((co) =>
-      merged.some((c) => c.includes(co))
-    ).length
-
-    score += coCount * 2
-
-    if (score > bestScore) {
-      bestScore = score
-      bestIndex = i
-    }
-  }
-
-  // minimum confidence threshold
-  return bestScore >= 5 ? bestIndex : -1
-}
-
-/* =========================
-   BUILD COLUMN MAP
-========================= */
-export const buildColumnMap = (rows, headerIndex) => {
-  const merged = mergeRows(rows, headerIndex)
+export const buildColumnMap = (rows, nameRow, coRow) => {
   const map = {}
 
-  merged.forEach((cell, idx) => {
-    if (cell.includes("sr")) map.sr = idx
-    else if (cell.includes("reg") || cell.includes("roll")) map.reg = idx
-    else if (cell.includes("name")) map.name = idx
-    else if (cell.includes("co1")) map.co1 = idx
-    else if (cell.includes("co2")) map.co2 = idx
-    else if (cell.includes("co3")) map.co3 = idx
-    else if (cell.includes("co4")) map.co4 = idx
-    else if (cell.includes("co5")) map.co5 = idx
+  // 🔹 Name / Reg / Sr from nameRow
+  rows[nameRow].forEach((cell, idx) => {
+    const h = norm(cell)
+    if (h.includes("sr")) map.sr = idx
+    else if (h.includes("reg") || h.includes("roll")) map.reg = idx
+    else if (h.includes("name")) map.name = idx
+  })
+
+  // 🔹 CO columns from coRow
+  rows[coRow].forEach((cell, idx) => {
+    const h = norm(cell)
+    if (h === "co1") map.co1 = idx
+    else if (h === "co2") map.co2 = idx
+    else if (h === "co3") map.co3 = idx
+    else if (h === "co4") map.co4 = idx
+    else if (h === "co5") map.co5 = idx
   })
 
   return map
 }
 
 /* =========================
-   MAIN PARSER
+   MAIN PARSER (HYBRID MODE)
 ========================= */
 export const parseExcel = (
   file,
@@ -114,46 +90,69 @@ export const parseExcel = (
         return
       }
 
-      const headerIndex = detectHeaderRow(rows)
-      if (headerIndex === -1) {
-        setStatus("❌ Student table header not detected")
+      /* =========================
+         DETECT HEADER ROWS
+      ========================= */
+      const header = detectHeaderRows(rows)
+      if (!header) {
+        setStatus("❌ Name / CO headers not detected")
         return
       }
 
-      const colMap = buildColumnMap(rows, headerIndex)
+      const colMap = buildColumnMap(
+        rows,
+        header.nameRow,
+        header.coRow
+      )
 
-      if (!colMap.name) {
-        setStatus("❌ Name column not found")
+      if (!colMap.name || colMap.co1 === undefined) {
+        setStatus("❌ Required columns missing")
         return
       }
 
-      /* 🔥 IMPORTANT FIX HERE
-         Only skip ONE header row
-      */
-      const dataRows = rows.slice(headerIndex + 1)
+      /* =========================
+         DATA START ROW
+         (below both header rows)
+      ========================= */
+      const dataStart =
+        Math.max(header.nameRow, header.coRow) + 1
 
+      const dataRows = rows.slice(dataStart)
+
+      /* =========================
+         PARSE STUDENTS
+      ========================= */
       const students = dataRows
         .filter((r) => r[colMap.name])
         .map((r, i) => {
           let acc = 0
 
           const student = {
-            serialNo: colMap.sr !== undefined ? r[colMap.sr] : i + 1,
-            roll: colMap.reg !== undefined ? r[colMap.reg] : "",
+            serialNo:
+              colMap.sr !== undefined ? r[colMap.sr] : i + 1,
+            roll:
+              colMap.reg !== undefined ? r[colMap.reg] : "",
             name: r[colMap.name],
             totalMarks: 0,
           }
 
           COS.forEach((co) => {
-            const raw =
-              colMap[co] !== undefined ? Number(r[colMap[co]]) || 0 : 0
+            if (colMap[co] === undefined) {
+              student[co] = 0
+              return
+            }
+
+            const rawVal = Number(r[colMap[co]])
+            const safeVal = isNaN(rawVal)
+              ? 0
+              : Math.max(0, rawVal)
 
             const allowed = Math.min(
               coMax[co],
               Math.max(0, totalMax - acc)
             )
 
-            student[co] = Math.min(raw, allowed)
+            student[co] = Math.min(safeVal, allowed)
             acc += student[co]
           })
 
@@ -165,7 +164,7 @@ export const parseExcel = (
       setStatus(`✅ Loaded ${students.length} students`)
     } catch (err) {
       console.error(err)
-      setStatus("❌ Failed to read Excel file")
+      setStatus("❌ Failed to parse Excel file")
     }
   }
 

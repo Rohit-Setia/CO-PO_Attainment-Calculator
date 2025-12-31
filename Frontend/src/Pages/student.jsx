@@ -29,7 +29,7 @@ export default function Student() {
 
   const [totalMax, setTotalMax] = useState(60)
 
-  const [thresholdPercent, setThresholdPercent] = useState(40)
+const [thresholdPercent, setThresholdPercent] = useState(40)
 const [levelCriteria, setLevelCriteria] = useState({
   level3: 70,
   level2: 60, 
@@ -45,22 +45,34 @@ const [isCalculating, setIsCalculating] = useState(false)
   ====================== */
   const updateMark = (index, co, value) => {
     setStudents((prev) => {
-      const copy = [...prev]
-      const s = { ...copy[index], [co]: Number(value) || 0 }
+      const updated = [...prev];
+      const student = { ...updated[index] };
 
+      // 1️⃣ Parse & clamp input (NO NEGATIVES)
+      const num = Number(value);
+      const safeValue = isNaN(num) ? 0 : Math.max(0, num);
+
+      // 2️⃣ Sum of other COs
       const otherSum = COS.reduce(
-        (sum, c) => (c === co ? sum : sum + (s[c] || 0)),
+        (sum, c) => (c === co ? sum : sum + (student[c] || 0)),
         0
-      )
+      );
 
-      s[co] = Math.min(s[co], coMax[co], totalMax - otherSum)
-      s.totalMarks = COS.reduce((sum, c) => sum + (s[c] || 0), 0)
-      s.percentage = calcOverallPercent(s, coMax)
+      // 3️⃣ Apply limits (CO max + total max)
+      const allowed = Math.min(coMax[co], Math.max(0, totalMax - otherSum));
 
-      copy[index] = s
-      return copy
-    })
-  }
+      student[co] = Math.min(safeValue, allowed);
+
+      // 4️⃣ Recalculate totals
+      student.totalMarks = COS.reduce((sum, c) => sum + (student[c] || 0), 0);
+
+
+      student.percentage = calcOverallPercent(student, coMax);
+
+      updated[index] = student;
+      return updated;
+    });
+  };
 
   /* ======================
      DOWNLOAD EXCEL

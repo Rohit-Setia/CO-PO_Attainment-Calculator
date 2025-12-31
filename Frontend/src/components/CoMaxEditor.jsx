@@ -2,29 +2,53 @@ import { Input } from "@/components/ui/input"
 import { COS } from "@/utils/calculations"
 
 export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, thresholdPercent, setThresholdPercent, levelCriteria, setLevelCriteria }) {
+ 
+  /* =========================
+     HANDLE CO MAX CHANGE
+  ========================= */
+  const handleCoMaxChange = (co, value) => {
+    const num = Number(value)
+    const safeValue = isNaN(num) ? 0 : Math.max(0, num)
+
+    setCoMax((prev) => ({
+      ...prev,
+      [co]: safeValue,
+    }))
+  }
+
+  /* =========================
+     HANDLE TOTAL MAX CHANGE
+  ========================= */
+  const handleTotalMaxChange = (value) => {
+    const num = Number(value)
+    setTotalMax(isNaN(num) ? 0 : Math.max(0, num))
+  }
+
   return (
     <div className="flex gap-4 flex-wrap mb-6">
       {COS.map((co) => (
         <div key={co} className="flex items-center gap-2">
-          <span className="uppercase">{co} Max</span>
+          <span className="uppercase font-medium">{co} Max</span>
           <Input
             type="number"
+            min={0}
             className="w-20"
             value={coMax[co]}
             onChange={(e) =>
-              setCoMax({ ...coMax, [co]: Number(e.target.value) || 0 })
+              handleCoMaxChange(co, e.target.value)
             }
           />
         </div>
       ))}
       <div className="flex items-center gap-2">
-        <span>Total Max</span>
+        <span className="uppercase font-medium">Total Max</span>
         <Input
           type="number"
+          min={0}
           className="w-24"
           value={totalMax}
           onChange={(e) =>
-            setTotalMax(Math.max(0, Number(e.target.value) || 0))
+            handleTotalMaxChange(e.target.value)
           }
         />
       </div>
