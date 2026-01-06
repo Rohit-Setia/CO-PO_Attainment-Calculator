@@ -1,68 +1,74 @@
 import * as XLSX from "xlsx"
+import { COS } from "./calculations"
 
 /* =========================
-   CONSTANTS
-========================= */
-const COS = ["co1", "co2", "co3", "co4", "co5"]
-
-/* =========================
-   NORMALIZE
+   NORMALIZE HEADER (SAFE)
 ========================= */
 const norm = (v = "") =>
   String(v).toLowerCase().replace(/[\s._-]/g, "")
 
 /* =========================
-   FIND ROW CONTAINING A KEY
+   FIND HEADER ROWS
 ========================= */
-const findRowWith = (rows, matcher) =>
-  rows.findIndex((row) => row.map(norm).some(matcher))
+const detectHeaderRows = (rows) => {
+  let nameRow = -1
+  let coRow = -1
 
-/* =========================
-   DETECT HEADER ROWS (HYBRID)
-========================= */
-export const detectHeaderRows = (rows) => {
-  const nameRow = findRowWith(rows, (c) =>
-    c === "name" || c === "student" || c === "studentname"
-  )
+  rows.forEach((row, r) => {
+    row.forEach((cell) => {
+      const h = norm(cell)
+      if (["name", "studentname"].includes(h)) nameRow = r
+      if (h === "co1" || h === "co1%") coRow = r
+    })
+  })
 
-  const coRow = findRowWith(rows, (c) =>
-    c === "co1" || c === "courseoutcome1"
-  )
-
-  if (nameRow === -1 || coRow === -1) return null
-
-  return { nameRow, coRow }
+  return nameRow === -1 || coRow === -1
+    ? null
+    : { nameRow, coRow }
 }
 
 /* =========================
-   BUILD COLUMN MAP (STRICT)
+   COLLECT POSSIBLE CO COLS
 ========================= */
-export const buildColumnMap = (rows, nameRow, coRow) => {
-  const map = {}
+const collectCoCandidates = (rows, coRow) => {
+  const candidates = {}
 
-  // 🔹 Name / Reg / Sr from nameRow
-  rows[nameRow].forEach((cell, idx) => {
-    const h = norm(cell)
-    if (h.includes("sr")) map.sr = idx
-    else if (h.includes("reg") || h.includes("roll")) map.reg = idx
-    else if (h.includes("name")) map.name = idx
-  })
-
-  // 🔹 CO columns from coRow
   rows[coRow].forEach((cell, idx) => {
-    const h = norm(cell)
-    if (h === "co1") map.co1 = idx
-    else if (h === "co2") map.co2 = idx
-    else if (h === "co3") map.co3 = idx
-    else if (h === "co4") map.co4 = idx
-    else if (h === "co5") map.co5 = idx
+    const raw = String(cell).toLowerCase()
+    COS.forEach((co) => {
+      if (raw.includes(co)) {
+        if (!candidates[co]) candidates[co] = []
+        candidates[co].push(idx)
+      }
+    })
   })
 
-  return map
+  return candidates
 }
 
 /* =========================
-   MAIN PARSER (HYBRID MODE)
+   CHOOSE RAW MARK COLUMN
+========================= */
+const pickBestColumn = (rows, colIndexes, startRow, coMax) => {
+  for (const idx of colIndexes) {
+    let valid = true
+
+    for (let r = startRow; r < rows.length; r++) {
+      const val = Number(rows[r][idx])
+      if (isNaN(val)) continue
+      if (val > coMax * 1.5) {
+        valid = false
+        break
+      }
+    }
+
+    if (valid) return idx
+  }
+  return colIndexes[0]
+}
+
+/* =========================
+   PARSE EXCEL (FLEXIBLE)
 ========================= */
 export const parseExcel = (
   file,
@@ -71,7 +77,7 @@ export const parseExcel = (
   setStudents,
   setStatus
 ) => {
-  if (!file) return
+
 
   const reader = new FileReader()
 
@@ -85,78 +91,68 @@ export const parseExcel = (
         defval: "",
       })
 
-      if (!rows.length) {
-        setStatus("❌ Empty Excel file")
-        return
-      }
-
-      /* =========================
-         DETECT HEADER ROWS
-      ========================= */
       const header = detectHeaderRows(rows)
       if (!header) {
-        setStatus("❌ Name / CO headers not detected")
+        setStatus("❌ Could not detect headers")
         return
       }
 
-      const colMap = buildColumnMap(
-        rows,
-        header.nameRow,
-        header.coRow
-      )
-
-      if (!colMap.name || colMap.co1 === undefined) {
-        setStatus("❌ Required columns missing")
+      const startRow = Math.max(header.nameRow, header.coRow) + 1
+      /* ---- FIND NAME / REG ---- */
+      const colMap = {}
+      rows[header.nameRow].forEach((cell, idx) => {
+        const h = norm(cell)
+        if (h.includes("sr")) colMap.sr = idx
+        else if (h.includes("reg")) colMap.roll = idx
+        else if (h === "name" || h === "studentname") colMap.name = idx
+      })
+      if (colMap.name == null) {
+        setStatus("❌ Name column not found")
         return
       }
+      /* ---- FIND CO CANDIDATES ---- */
+      const candidates = collectCoCandidates(rows, header.coRow)
 
-      /* =========================
-         DATA START ROW
-         (below both header rows)
-      ========================= */
-      const dataStart =
-        Math.max(header.nameRow, header.coRow) + 1
+      COS.forEach((co) => {
+        if (!candidates[co]) return
+        colMap[co] = pickBestColumn(
+          rows,
+          candidates[co],
+          startRow,
+          coMax[co]
+        )
+      })
 
-      const dataRows = rows.slice(dataStart)
+      /* ---- READ STUDENTS ---- */
+      const students = rows
+        .slice(startRow)
 
-      /* =========================
-         PARSE STUDENTS
-      ========================= */
-      const students = dataRows
         .filter((r) => r[colMap.name])
         .map((r, i) => {
-          let acc = 0
+
 
           const student = {
-            serialNo:
-              colMap.sr !== undefined ? r[colMap.sr] : i + 1,
-            roll:
-              colMap.reg !== undefined ? r[colMap.reg] : "",
+            serialNo: r[colMap.sr] ?? i + 1,
+            roll: r[colMap.roll] ?? "",
+
+
             name: r[colMap.name],
             totalMarks: 0,
           }
 
+          let total = 0
+
           COS.forEach((co) => {
-            if (colMap[co] === undefined) {
-              student[co] = 0
-              return
-            }
+            const idx = colMap[co]
+            let val = Number(r[idx])
 
-            const rawVal = Number(r[colMap[co]])
-            const safeVal = isNaN(rawVal)
-              ? 0
-              : Math.max(0, rawVal)
+            if (isNaN(val) || val < 0 || val > coMax[co]) val = 0
 
-            const allowed = Math.min(
-              coMax[co],
-              Math.max(0, totalMax - acc)
-            )
-
-            student[co] = Math.min(safeVal, allowed)
-            acc += student[co]
+            student[co] = val
+            total += val
           })
 
-          student.totalMarks = acc
+          student.totalMarks = total
           return student
         })
 
@@ -164,9 +160,9 @@ export const parseExcel = (
       setStatus(`✅ Loaded ${students.length} students`)
     } catch (err) {
       console.error(err)
-      setStatus("❌ Failed to parse Excel file")
+      setStatus("❌ Excel parsing failed")
     }
   }
-
   reader.readAsArrayBuffer(file)
+
 }
