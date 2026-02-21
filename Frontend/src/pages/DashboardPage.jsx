@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { fetchDashboard } from '../api/authApi';
+import { useNavigate } from 'react-router-dom';
+import { fetchDashboard } from '../Api/authApi';
 import { useAuth } from '../context/AuthContext';
 
 const DashboardPage = () => {
+  const navigate = useNavigate();
   const { user, setUser, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -35,13 +37,22 @@ const DashboardPage = () => {
             <p className="text-sm text-slate-500">Protected area accessible only to authenticated teachers.</p>
           </div>
 
-          <button
-            type="button"
-            onClick={logout}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500"
-          >
-            Logout
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/student')}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+            >
+              Go to Calculator
+            </button>
+            <button
+              type="button"
+              onClick={logout}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}

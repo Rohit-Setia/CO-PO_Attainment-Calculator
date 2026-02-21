@@ -23,7 +23,14 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
-      <Route path="/student" element={<Student />} />
+      <Route
+        path="/student"
+        element={
+          <ProtectedRoute>
+            <Student />
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

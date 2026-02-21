@@ -33,6 +33,13 @@ createUsersTable()
     app.listen(PORT, () => console.log('Server running on', PORT));
   })
   .catch((error) => {
-    console.error('Failed to initialize database tables:', error.message);
+    // Log full error (stack and object) to help diagnose DB init failures
+    console.error('Failed to initialize database tables:');
+    console.error(error && error.stack ? error.stack : error);
+    // If this error was augmented with an original driver error, log it too
+    if (error && error.original) {
+      console.error('Original error:');
+      console.error(error.original && error.original.stack ? error.original.stack : error.original);
+    }
     process.exit(1);
   });

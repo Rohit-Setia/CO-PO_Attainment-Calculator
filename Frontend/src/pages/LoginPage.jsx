@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { loginTeacher } from '../api/authApi';
+import { loginTeacher } from '../Api/authApi';
 import AuthLayout from '../components/auth/AuthLayout';
 import { useAuth } from '../context/AuthContext';
 
@@ -28,7 +28,7 @@ const LoginPage = () => {
       const { token, user } = response.data.data;
       login(token, user);
 
-      const redirectTo = location.state?.from?.pathname || '/dashboard';
+      const redirectTo = location.state?.from?.pathname || '/student';
       navigate(redirectTo, { replace: true });
     } catch (apiError) {
       setError(apiError.response?.data?.message || 'Unable to login. Please try again.');

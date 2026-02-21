@@ -1,4 +1,5 @@
 import React, { useState,useEffect,useCallback } from "react"
+import { useNavigate } from "react-router-dom"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -13,6 +14,7 @@ import { Button } from "@/components/ui/button"
 
 import { parseExcel } from "@/utils/excelParser"
 import { COS} from "@/utils/calculations"
+import { useAuth } from "@/context/AuthContext"
 
 const normalizeStudent = (student, coMax, totalMax) => {
   const fixed = { ...student }
@@ -33,6 +35,8 @@ const normalizeStudent = (student, coMax, totalMax) => {
 }
 
 export default function Student() {
+  const navigate = useNavigate()
+  const { logout } = useAuth()
   const [students, setStudents] = useState([])
   const [status, setStatus] = useState(null)
 
@@ -64,7 +68,7 @@ const [isCalculating, setIsCalculating] = useState(false)
     setStudents((prev) =>
       prev.map((s) => normalizeStudent(s, coMax, totalMax))
     )
-  }, [coMax, totalMax])
+  }, [coMax, totalMax, students.length])
 
   const updateMark = useCallback(
     (index, co, value) => {
@@ -145,62 +149,105 @@ const [isCalculating, setIsCalculating] = useState(false)
   
 
   return (
-    <Card className="p-6">
-      <CardHeader>
-        <CardTitle>CO Marks Calculator</CardTitle>
-      </CardHeader>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-8">
+      <div className="mx-auto max-w-6xl">
+        {/* Header */}
+        <div className="mb-8 flex flex-col gap-4 rounded-xl bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">CO-PO Attainment Calculator</h1>
+            <p className="mt-1 text-sm text-slate-600">Calculate and analyze student CO-PO attainment levels</p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
+              className="rounded-lg bg-slate-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+            >
+              Dashboard
+            </button>
+            <button
+              type="button"
+              onClick={logout}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
 
-      <CardContent>
-        {/* CO MAX + TOTAL MAX */}
-        <CoMaxEditor
-          coMax={coMax}
-          setCoMax={setCoMax}
-          totalMax={totalMax}
-          setTotalMax={setTotalMax}
-          thresholdPercent={thresholdPercent}
-          setThresholdPercent={setThresholdPercent}
-          levelCriteria={levelCriteria}
-          setLevelCriteria={setLevelCriteria}
-        />
+        {/* Main Content Card */}
+        <Card className="shadow-lg">
+          <CardContent className="p-6">
+            {/* CO MAX + TOTAL MAX */}
+            <div className="mb-8">
+              <h2 className="mb-4 text-lg font-semibold text-slate-900">Configuration</h2>
+              <CoMaxEditor
+                coMax={coMax}
+                setCoMax={setCoMax}
+                totalMax={totalMax}
+                setTotalMax={setTotalMax}
+                thresholdPercent={thresholdPercent}
+                setThresholdPercent={setThresholdPercent}
+                levelCriteria={levelCriteria}
+                setLevelCriteria={setLevelCriteria}
+              />
+            </div>
 
+            {/* FILE UPLOAD / DOWNLOAD */}
+            <div className="mb-8">
+              <h2 className="mb-4 text-lg font-semibold text-slate-900">Data Import/Export</h2>
+              <FileActions
+                students={students}
+                onUpload={(file) =>
+                  parseExcel(file, coMax, totalMax, setStudents, setStatus)
+                }
+                onDownload={downloadReportExcel}
+                results={results}
+              />
+            </div>
 
+            {/* Status Alert */}
+            {status && (
+              <Alert className="mb-6 border-l-4 border-blue-500 bg-blue-50">
+                <AlertDescription className="text-blue-900">{status}</AlertDescription>
+              </Alert>
+            )}
 
-        {/* FILE UPLOAD / DOWNLOAD */}
-        <FileActions
-          students={students}
-          onUpload={(file) =>
-            parseExcel(file, coMax, totalMax, setStudents, setStatus)
-          }
-          onDownload={downloadReportExcel}
-          results={results} 
-        />
+            {/* Student Table */}
+            {students.length > 0 && (
+              <div className="mb-8">
+                <h2 className="mb-4 text-lg font-semibold text-slate-900">Student Marks</h2>
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <StudentTable
+                    students={students}
+                    updateMark={updateMark}
+                    coMax={coMax}
+                  />
+                </div>
+              </div>
+            )}
 
-        {status && (
-          <Alert className="mb-4">
-            <AlertDescription>{status}</AlertDescription>
-          </Alert>
-        )}
+            {/* Calculate Button */}
+            <div className="mb-8 flex justify-center">
+              <Button
+                onClick={handleCalculate}
+                disabled={students.length === 0 || isCalculating}
+                className="bg-blue-600 px-8 py-3 text-base font-medium transition hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isCalculating ? 'Calculating Attainment...' : 'Calculate CO Attainment'}
+              </Button>
+            </div>
 
-        {students.length > 0 && (
-          <StudentTable
-            students={students}
-            updateMark={updateMark}
-            coMax={coMax}
-          />
-        )}
-        <AttainmentResults results={results} isLoading={isCalculating} />
-      </CardContent>
-      <div className="flex justify-center gap-4 mb-6 p-4 bg-muted/50 rounded-lg">
-      <Button
-  onClick={handleCalculate}
-  disabled={students.length === 0 || isCalculating}
-  className="bg-blue-600 hover:bg-blue-700"
->
-  {isCalculating ? 'Calculating...' : 'Calculate CO Attainment'}
-</Button>
-
-</div>
-    </Card>
-
+            {/* Attainment Results */}
+            {results && (
+              <div>
+                <h2 className="mb-4 text-lg font-semibold text-slate-900">Results</h2>
+                <AttainmentResults results={results} isLoading={isCalculating} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   )
 }
