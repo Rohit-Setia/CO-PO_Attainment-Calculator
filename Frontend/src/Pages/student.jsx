@@ -1,7 +1,7 @@
 import React, { useState,useEffect,useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent} from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 import FileActions from "@/components/FileActions"
@@ -143,10 +143,12 @@ const [isCalculating, setIsCalculating] = useState(false)
     }
   }
   
+  const academicDetails = JSON.parse(sessionStorage.getItem("academicDetails")) || null;
   useEffect(() => {
-    console.log("Students:", students)
-  }, [students])
-  
+    if (!academicDetails) {
+      navigate("/select");
+    }
+  }, [academicDetails, navigate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-8">
@@ -156,6 +158,11 @@ const [isCalculating, setIsCalculating] = useState(false)
           <div>
             <h1 className="text-3xl font-bold text-slate-900">CO-PO Attainment Calculator</h1>
             <p className="mt-1 text-sm text-slate-600">Calculate and analyze student CO-PO attainment levels</p>
+            {academicDetails && (
+    <p className="mt-2 text-sm text-slate-600">
+      {academicDetails.subject} - {academicDetails.examType}
+    </p>
+  )}
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
@@ -174,7 +181,6 @@ const [isCalculating, setIsCalculating] = useState(false)
             </button>
           </div>
         </div>
-
         {/* Main Content Card */}
         <Card className="shadow-lg">
           <CardContent className="p-6">

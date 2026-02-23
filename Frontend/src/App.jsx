@@ -2,10 +2,11 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import './App.css';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import DashboardPage from './pages/DashboardPage';
-import LoginPage from './pages/LoginPage';
-import SignupPage from './pages/SignupPage';
+import DashboardPage from './Pages/DashboardPage';
+import LoginPage from './Pages/LoginPage';
+import SignupPage from './Pages/SignupPage';
 import Student from './Pages/student';
+import SelectionPage from './Pages/SelectDetails';
 
 const AppRoutes = () => {
   const { isAuthenticated } = useAuth();
@@ -15,6 +16,14 @@ const AppRoutes = () => {
       <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
+      <Route
+        path="/select"
+        element={
+          <ProtectedRoute>
+            <SelectionPage />
+          </ProtectedRoute>
+        }
+        />
       <Route
         path="/dashboard"
         element={
