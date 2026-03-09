@@ -40,15 +40,29 @@ export default function Student() {
   const [students, setStudents] = useState([])
   const [status, setStatus] = useState(null)
 
-  const [coMax, setCoMax] = useState({
-    co1: 10,
-    co2: 10,
-    co3: 10,
-    co4: 15,
-    co5: 15,
-  })
+  const [coMax, setCoMax] = useState(() => {
+    const stored = sessionStorage.getItem("coConfiguration");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.coMax) return parsed.coMax;
+    }
+    return {
+      co1: 10,
+      co2: 10,
+      co3: 10,
+      co4: 15,
+      co5: 15,
+    };
+  });
 
-  const [totalMax, setTotalMax] = useState(60)
+  const [totalMax, setTotalMax] = useState(() => {
+    const stored = sessionStorage.getItem("coConfiguration");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.totalMax) return parsed.totalMax;
+    }
+    return 60;
+  });
 
 const [thresholdPercent, setThresholdPercent] = useState(40)
 const [levelCriteria, setLevelCriteria] = useState({

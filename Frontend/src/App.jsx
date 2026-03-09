@@ -7,6 +7,7 @@ import LoginPage from './Pages/LoginPage';
 import SignupPage from './Pages/SignupPage';
 import Student from './Pages/student';
 import SelectionPage from './Pages/SelectDetails';
+import QuestionSetup from './Pages/QuestionSetup';
 
 const AppRoutes = () => {
   const { isAuthenticated } = useAuth();
@@ -24,6 +25,14 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
         />
+      <Route
+        path="/setup-questions"
+        element={
+          <ProtectedRoute>
+            <QuestionSetup />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/dashboard"
         element={

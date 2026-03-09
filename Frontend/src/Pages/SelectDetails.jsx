@@ -68,7 +68,7 @@ export default function SelectionPage() {
 
   const handleContinue = () => {
     sessionStorage.setItem("academicDetails", JSON.stringify(formData));
-    navigate("/student");
+    navigate("/setup-questions");
   };
 
 
