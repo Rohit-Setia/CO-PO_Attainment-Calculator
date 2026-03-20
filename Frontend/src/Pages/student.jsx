@@ -37,7 +37,11 @@ const normalizeStudent = (student, coMax, totalMax) => {
 export default function Student() {
   const navigate = useNavigate()
   const { logout } = useAuth()
-  const [students, setStudents] = useState([])
+  const [students, setStudents] = useState(() => {
+    const stored = sessionStorage.getItem("setupStudents");
+    if (stored) return JSON.parse(stored);
+    return [];
+  });
   const [status, setStatus] = useState(null)
 
   const [coMax, setCoMax] = useState(() => {
