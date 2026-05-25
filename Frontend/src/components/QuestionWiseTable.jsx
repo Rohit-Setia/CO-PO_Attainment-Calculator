@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 export default function QuestionWiseTable({ students, questions, updateMark, updateQuestionConfig, updateStudentInfo, removeStudent }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm bg-white">
+    <div className="w-full max-w-full overflow-x-auto rounded-lg border border-slate-200 shadow-sm bg-white">
       <table className="w-full text-sm border-collapse min-w-max">
         <thead className="bg-slate-50 border-b border-slate-200">
           {/* Main Headers */}
@@ -16,7 +16,7 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
             <th className="sticky left-[240px] z-30 bg-slate-50 border-r border-slate-200 px-4 py-4 text-left font-semibold text-slate-700 w-[250px] min-w-[250px] whitespace-nowrap">Student Name</th>
             <th className="sticky left-[490px] z-30 bg-slate-50 border-r border-slate-200 px-4 py-4 text-center font-bold text-blue-700 w-[100px] min-w-[100px] whitespace-nowrap">Total</th>
             {questions.map((q, i) => (
-              <th key={q.id} className="px-4 py-4 text-center font-semibold text-slate-700 border-r border-slate-200 w-[130px] min-w-[130px]">
+              <th key={q.id} className="px-2 py-4 text-center font-semibold text-slate-700 border-r border-slate-200 w-[160px] min-w-[160px]">
                 <div className="flex flex-col gap-2 items-center">
                   <span className="text-sm font-bold text-slate-900">{q.label}</span>
                   
@@ -39,8 +39,11 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                     <input
                       type="number"
                       min="1"
-                      value={q.maxMarks}
-                      onChange={(e) => updateQuestionConfig(i, "maxMarks", parseInt(e.target.value) || 0)}
+                      value={q.maxMarks !== undefined && q.maxMarks !== null ? q.maxMarks : ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        updateQuestionConfig(i, "maxMarks", val === "" ? "" : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded border border-slate-300 bg-white px-1.5 py-1 text-center text-xs focus:border-blue-500 focus:outline-none font-bold"
                     />
                   </div>
@@ -82,15 +85,15 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
               </td>
 
               {questions.map((q) => (
-                <td key={q.id} className="px-4 py-3 text-center border-r border-slate-200 min-w-[130px]">
+                <td key={q.id} className="px-2 py-3 text-center border-r border-slate-200 w-[160px] min-w-[160px]">
                   <Input
                     type="number"
                     min="0"
                     max={q.maxMarks}
-                    value={student.questionMarks?.[q.id] ?? 0}
+                    value={student.questionMarks?.[q.id] !== undefined && student.questionMarks?.[q.id] !== null ? student.questionMarks[q.id] : ""}
                     onChange={(e) => {
-                      const val = parseInt(e.target.value) || 0;
-                      updateMark(i, q.id, val);
+                      const val = e.target.value;
+                      updateMark(i, q.id, val === "" ? "" : (parseInt(val) || 0));
                     }}
                     className={`mx-auto h-9 w-20 text-center font-medium focus:ring-2 focus:ring-blue-500 ${
                       (student.questionMarks?.[q.id] ?? 0) > q.maxMarks ? "border-red-500 text-red-600 bg-red-50" : "bg-white border-slate-200"

@@ -37,11 +37,12 @@ const normalizeStudent = (student, coMax, totalMax) => {
 export default function Student() {
   const navigate = useNavigate()
   const { logout } = useAuth()
-  const [students, setStudents] = useState(() => {
+  const [rawStudents, setRawStudents] = useState(() => {
     const stored = sessionStorage.getItem("setupStudents");
     if (stored) return JSON.parse(stored);
     return [];
   });
+  const [students, setStudents] = useState([]);
   const [status, setStatus] = useState(null)
 
   const [coMax, setCoMax] = useState(() => {
@@ -68,64 +69,103 @@ export default function Student() {
     return 60;
   });
 
-const [thresholdPercent, setThresholdPercent] = useState(40)
-const [levelCriteria, setLevelCriteria] = useState({
-  level3: 70,
-  level2: 60, 
-  level1: 50
-})
+  const [thresholdPercent, setThresholdPercent] = useState(40)
+  const [levelCriteria, setLevelCriteria] = useState({
+    level3: 70,
+    level2: 60, 
+    level1: 50
+  })
 
+  const [results, setResults] = useState(null)
+  const [isCalculating, setIsCalculating] = useState(false)
 
-const [results, setResults] = useState(null)
-const [isCalculating, setIsCalculating] = useState(false)
-
-  // Re-normalize students when coMax or totalMax changes
+  // Re-normalize students when rawStudents, coMax or totalMax changes
   useEffect(() => {
-    if (!students.length) return
+    if (!rawStudents.length) {
+      setStudents([]);
+      return;
+    }
 
-    setStudents((prev) =>
-      prev.map((s) => normalizeStudent(s, coMax, totalMax))
-    )
-  }, [coMax, totalMax, students.length])
+    const activeTotalMax = totalMax === "" ? 9999 : Number(totalMax);
+    const activeCoMax = {};
+    COS.forEach((co) => {
+      activeCoMax[co] = coMax[co] === "" ? 9999 : Number(coMax[co]);
+    });
+
+    setStudents(
+      rawStudents.map((s) => normalizeStudent(s, activeCoMax, activeTotalMax))
+    );
+  }, [rawStudents, coMax, totalMax]);
+
+  // Clear results whenever inputs change to avoid displaying stale results
+  useEffect(() => {
+    setResults(null);
+  }, [rawStudents, coMax, totalMax, thresholdPercent, levelCriteria]);
+
+  // Real-time autosave of student marks and configurations to sessionStorage
+  useEffect(() => {
+    if (rawStudents.length > 0) {
+      sessionStorage.setItem("setupStudents", JSON.stringify(rawStudents));
+    }
+  }, [rawStudents]);
+
+  useEffect(() => {
+    const storedConfig = sessionStorage.getItem("coConfiguration");
+    let config = {};
+    if (storedConfig) {
+      try {
+        config = JSON.parse(storedConfig);
+      } catch (e) {
+        config = {};
+      }
+    }
+    config.coMax = coMax;
+    config.totalMax = totalMax;
+    sessionStorage.setItem("coConfiguration", JSON.stringify(config));
+  }, [coMax, totalMax]);
 
   const updateMark = useCallback(
     (index, co, value) => {
-      setStudents((prev) => {
-        if (!prev[index]) return prev
+      setRawStudents((prevRaw) => {
+        if (!prevRaw[index]) return prevRaw
 
-        const updated = [...prev]
-        const student = { ...updated[index] }
+        const updatedRaw = [...prevRaw]
+        const studentRaw = { ...updatedRaw[index] }
 
-        let entered = Number(value)
-        if (isNaN(entered) || entered < 0) entered = 0
-        entered = Math.min(entered, coMax[co])
-
-        // Calculate sum of other COs
-        const otherSum = COS.reduce(
-          (sum, c) => (c === co ? sum : sum + (student[c] || 0)),
-          0
-        )
-
-        const remaining = Math.max(0, totalMax - otherSum)
-        student[co] = Math.min(entered, remaining)
-
-        updated[index] = normalizeStudent(student, coMax, totalMax)
-        return updated
+        let entered = value === "" ? "" : Number(value)
+        if (entered !== "" && (isNaN(entered) || entered < 0)) entered = 0
+        
+        studentRaw[co] = entered
+        updatedRaw[index] = studentRaw
+        return updatedRaw
       })
     },
-    [coMax, totalMax]
-  )
+    []
+  );
 
   const handleCalculate = useCallback(async () => {
     if (!students.length || isCalculating) return
 
     setIsCalculating(true)
     try {
+      const activeThreshold = thresholdPercent === "" ? 40 : Number(thresholdPercent);
+      const activeLevelCriteria = {
+        level3: levelCriteria.level3 === "" ? 70 : Number(levelCriteria.level3),
+        level2: levelCriteria.level2 === "" ? 60 : Number(levelCriteria.level2),
+        level1: levelCriteria.level1 === "" ? 50 : Number(levelCriteria.level1),
+      };
+
+      const activeTotalMax = totalMax === "" ? 9999 : Number(totalMax);
+      const activeCoMax = {};
+      COS.forEach((co) => {
+        activeCoMax[co] = coMax[co] === "" ? 9999 : Number(coMax[co]);
+      });
+
       const res = await calculateAttainment(
         students,
-        coMax,
-        thresholdPercent,
-        levelCriteria
+        activeCoMax,
+        activeThreshold,
+        activeLevelCriteria
       )
       setResults(res.data)
       setStatus(null) // Clear any previous errors
@@ -135,11 +175,11 @@ const [isCalculating, setIsCalculating] = useState(false)
     } finally {
       setIsCalculating(false)
     }
-  }, [students, coMax, thresholdPercent, levelCriteria, isCalculating])
+  }, [students, coMax, totalMax, thresholdPercent, levelCriteria, isCalculating])
 
   /* ======================
      DOWNLOAD EXCEL
-  ====================== */
+  ========================= */
   const downloadReportExcel = async () => {
     if (!results) {
       setStatus('Please calculate first!')
@@ -147,7 +187,31 @@ const [isCalculating, setIsCalculating] = useState(false)
     }
     
     try {
-      const blob = await downloadExcel(students, coMax, results, levelCriteria, thresholdPercent);
+      const activeThreshold = thresholdPercent === "" ? 40 : Number(thresholdPercent);
+      const activeLevelCriteria = {
+        level3: levelCriteria.level3 === "" ? 70 : Number(levelCriteria.level3),
+        level2: levelCriteria.level2 === "" ? 60 : Number(levelCriteria.level2),
+        level1: levelCriteria.level1 === "" ? 50 : Number(levelCriteria.level1),
+      };
+
+      const activeTotalMax = totalMax === "" ? 9999 : Number(totalMax);
+      const activeCoMax = {};
+      COS.forEach((co) => {
+        activeCoMax[co] = coMax[co] === "" ? 9999 : Number(coMax[co]);
+      });
+
+      // Retrieve course info from sessionStorage
+      const academicDetails = JSON.parse(sessionStorage.getItem("academicDetails")) || {};
+      const courseInfo = {
+        school: academicDetails.school || "",
+        program: academicDetails.department || "",
+        sem: academicDetails.semester || "",
+        code: "", // Not collected in select screen, left empty
+        name: academicDetails.subject || "",
+        examType: academicDetails.examType || "ETT"
+      };
+
+      const blob = await downloadExcel(students, activeCoMax, results, activeLevelCriteria, activeThreshold, courseInfo);
       const url = window.URL.createObjectURL(new Blob([blob]));
       const link = document.createElement('a');
       link.href = url;
@@ -183,6 +247,27 @@ const [isCalculating, setIsCalculating] = useState(false)
   )}
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => {
+                const stored = sessionStorage.getItem("coConfiguration");
+                if (stored) {
+                  try {
+                    const parsed = JSON.parse(stored);
+                    if (parsed.questions && parsed.questions.length > 0) {
+                      navigate("/setup-questions");
+                      return;
+                    }
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }
+                navigate("/select");
+              }}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              ← Back
+            </button>
             <button
               type="button"
               onClick={() => navigate('/dashboard')}
@@ -223,7 +308,7 @@ const [isCalculating, setIsCalculating] = useState(false)
               <FileActions
                 students={students}
                 onUpload={(file) =>
-                  parseExcel(file, coMax, totalMax, setStudents, setStatus)
+                  parseExcel(file, coMax, totalMax, setRawStudents, setStatus)
                 }
                 onDownload={downloadReportExcel}
                 results={results}

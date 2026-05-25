@@ -34,7 +34,7 @@ export default function StudentTable({ students, updateMark, coMax }) {
                 <td key={co}>
                   <Input
                     type="number"
-                    value={s[co] || 0}
+                    value={s[co] !== undefined && s[co] !== null ? s[co] : ""}
                     onChange={(e) => updateMark(i, co, e.target.value)}
                     className="w-20"
                   />

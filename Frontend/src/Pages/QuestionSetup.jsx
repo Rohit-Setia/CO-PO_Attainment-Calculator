@@ -12,33 +12,63 @@ import { useAuth } from "@/context/AuthContext";
 export default function QuestionSetup() {
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const [students, setStudents] = useState([]);
+  const [students, setStudents] = useState(() => {
+    const stored = sessionStorage.getItem("setupStudents");
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return [];
+  });
   const [status, setStatus] = useState(null);
   
   // Dynamic question configuration state
-  const [numQuestions, setNumQuestions] = useState(5);
-  const [questions, setQuestions] = useState([]);
-
-  // Initialize from sessionStorage or default
-  useEffect(() => {
+  const [numQuestions, setNumQuestions] = useState(() => {
     const stored = sessionStorage.getItem("coConfiguration");
     if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.questions) {
-        setQuestions(parsed.questions);
-        setNumQuestions(parsed.questions.length);
-        return;
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.questions) return parsed.questions.length;
+      } catch (e) {
+        console.error(e);
       }
     }
-    
-    const initialQuestions = Array.from({ length: 5 }, (_, i) => ({
+    return 5;
+  });
+
+  const [numQuestionsInput, setNumQuestionsInput] = useState(() => {
+    const stored = sessionStorage.getItem("coConfiguration");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.questions) return parsed.questions.length.toString();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return "5";
+  });
+
+  const [questions, setQuestions] = useState(() => {
+    const stored = sessionStorage.getItem("coConfiguration");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.questions) return parsed.questions;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return Array.from({ length: 5 }, (_, i) => ({
       id: i + 1,
       label: `Q${i + 1}`,
       co: "co1",
       maxMarks: 10,
     }));
-    setQuestions(initialQuestions);
-  }, []);
+  });
 
   // Update questions array when numQuestions changes
   useEffect(() => {
@@ -86,6 +116,32 @@ export default function QuestionSetup() {
     setStudents((prev) => prev.map((s) => calculateStudentPerformance(s, questions)));
   }, [questions, calculateStudentPerformance]);
 
+  // Real-time autosave of students and configurations to sessionStorage
+  useEffect(() => {
+    if (students.length > 0) {
+      sessionStorage.setItem("setupStudents", JSON.stringify(students));
+    }
+  }, [students]);
+
+  useEffect(() => {
+    if (questions.length > 0) {
+      const coMax = questions.reduce((acc, q) => {
+        const coKey = String(q.co).toLowerCase();
+        acc[coKey] = (acc[coKey] || 0) + q.maxMarks;
+        return acc;
+      }, { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 });
+
+      const totalMax = questions.reduce((sum, q) => sum + q.maxMarks, 0);
+
+      const config = {
+        questions,
+        coMax,
+        totalMax
+      };
+      sessionStorage.setItem("coConfiguration", JSON.stringify(config));
+    }
+  }, [questions]);
+
   const updateMark = useCallback(
     (index, questionId, value) => {
       setStudents((prev) => {
@@ -94,9 +150,9 @@ export default function QuestionSetup() {
         const qMarks = { ...student.questionMarks, [questionId]: value };
 
         const question = questions.find((q) => q.id === questionId);
-        if (question && value > question.maxMarks) {
+        if (question && value !== "" && Number(value) > question.maxMarks) {
           setStatus(`Warning: Mark for Q${questionId} exceeds max marks (${question.maxMarks})`);
-        } else if (value < 0) {
+        } else if (value !== "" && Number(value) < 0) {
           setStatus(`Warning: Mark for Q${questionId} cannot be negative`);
         } else {
           setStatus(null);
@@ -159,11 +215,34 @@ export default function QuestionSetup() {
     }
 
     const coMax = questions.reduce((acc, q) => {
-      acc[q.co] = (acc[q.co] || 0) + q.maxMarks;
+      const coKey = String(q.co).toLowerCase();
+      acc[coKey] = (acc[coKey] || 0) + q.maxMarks;
       return acc;
     }, { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 });
 
     const totalMax = questions.reduce((sum, q) => sum + q.maxMarks, 0);
+
+    // Recalculate CO totals for each student to ensure accuracy before saving
+    const finalizedStudents = students.map((student) => {
+      const qMarks = student.questionMarks || {};
+      const coPerformance = { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 };
+      let totalMarks = 0;
+
+      questions.forEach((q) => {
+        const mark = Number(qMarks[q.id]) || 0;
+        const coKey = String(q.co).toLowerCase();
+        if (coPerformance[coKey] !== undefined) {
+          coPerformance[coKey] += mark;
+        }
+        totalMarks += mark;
+      });
+
+      return {
+        ...student,
+        ...coPerformance,
+        totalMarks,
+      };
+    });
 
     const config = {
       questions,
@@ -172,8 +251,7 @@ export default function QuestionSetup() {
     };
     
     sessionStorage.setItem("coConfiguration", JSON.stringify(config));
-    // Optionally store current students to session as well if results page needs them
-    sessionStorage.setItem("setupStudents", JSON.stringify(students));
+    sessionStorage.setItem("setupStudents", JSON.stringify(finalizedStudents));
     
     navigate("/student");
   };
@@ -228,12 +306,24 @@ export default function QuestionSetup() {
               <div className="flex items-center gap-3">
                 <Input
                   type="number"
-                  min="5"
-                  max="30"
-                  value={numQuestions}
+                  value={numQuestionsInput}
                   onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    if (!isNaN(val)) setNumQuestions(Math.min(30, Math.max(5, val)));
+                    const valStr = e.target.value;
+                    setNumQuestionsInput(valStr);
+                    const val = parseInt(valStr);
+                    if (!isNaN(val) && val >= 5 && val <= 30) {
+                      setNumQuestions(val);
+                    }
+                  }}
+                  onBlur={() => {
+                    let val = parseInt(numQuestionsInput);
+                    if (isNaN(val) || val < 5) {
+                      val = 5;
+                    } else if (val > 30) {
+                      val = 30;
+                    }
+                    setNumQuestions(val);
+                    setNumQuestionsInput(val.toString());
                   }}
                   className="w-24 font-bold text-blue-600"
                 />
@@ -246,7 +336,19 @@ export default function QuestionSetup() {
             <CardContent className="p-4 flex items-center justify-between h-full">
                <FileActions
                   students={students}
-                  onUpload={(file) => parseExcel(file, { co1: 100, co2: 100, co3: 100, co4: 100, co5: 100 }, 500, setStudents, setStatus)}
+                  onUpload={(file) => parseExcel(file, { co1: 100, co2: 100, co3: 100, co4: 100, co5: 100 }, 500, (parsedStudents) => {
+                    setStudents(parsedStudents);
+                    if (parsedStudents.length > 0 && parsedStudents[0].questionMarks) {
+                       const qIds = Object.keys(parsedStudents[0].questionMarks).map(Number);
+                       if (qIds.length > 0) {
+                         const maxQ = Math.max(...qIds);
+                         if (maxQ >= 5 && maxQ <= 30) {
+                           setNumQuestions(maxQ);
+                           setNumQuestionsInput(maxQ.toString());
+                         }
+                       }
+                    }
+                  }, setStatus, questions)}
                   onDownload={() => {}}
                   results={null}
                 />
