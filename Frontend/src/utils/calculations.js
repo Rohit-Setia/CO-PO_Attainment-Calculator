@@ -4,11 +4,20 @@ export const calcOverallPercent = (student, coMax) => {
   let obtained = 0
   let max = 0
   COS.forEach((co) => {
-    obtained += student[co] || 0
-    max += coMax[co]
+    const val = parseFloat(student[co])
+    obtained += isNaN(val) || val < 0 ? 0 : val
+    max += Number(coMax[co]) || 0
   })
-  return max === 0 ? 0 : Math.round((obtained / max) * 100)
+  if (max === 0) return "0.00"
+  return ((obtained / max) * 100).toFixed(2)
 }
 
-export const calcCoPercent = (value, max) =>
-  max === 0 ? "0.00" : ((value / max) * 100).toFixed(2)
+export const calcCoPercent = (value, max) => {
+  const numericMax = Number(max)
+  if (!max || isNaN(numericMax) || numericMax === 0) {
+    return "0.00"
+  }
+  const numericValue = parseFloat(value)
+  if (isNaN(numericValue) || numericValue < 0) return "0.00"
+  return ((numericValue / numericMax) * 100).toFixed(2)
+}

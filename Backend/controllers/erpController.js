@@ -439,7 +439,8 @@ const importStudents = async (req, res) => {
 // ==========================================
 const getPOs = async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM pos ORDER BY po_number ASC');
+    const [rows] = await pool.query('SELECT * FROM pos');
+    rows.sort((a, b) => a.po_number.localeCompare(b.po_number, undefined, { numeric: true, sensitivity: 'base' }));
     res.json({ success: true, data: rows });
   } catch (error) {
     handleError(res, error, 'Failed to fetch POs');
@@ -461,7 +462,8 @@ const createPO = async (req, res) => {
 
 const getPSOs = async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM psos ORDER BY pso_number ASC');
+    const [rows] = await pool.query('SELECT * FROM psos');
+    rows.sort((a, b) => a.pso_number.localeCompare(b.pso_number, undefined, { numeric: true, sensitivity: 'base' }));
     res.json({ success: true, data: rows });
   } catch (error) {
     handleError(res, error, 'Failed to fetch PSOs');
@@ -568,10 +570,41 @@ const saveCOPOMappings = async (req, res) => {
 const getAssessments = async (req, res) => {
   try {
     const { classroom_id, subject_id } = req.query;
-    const [rows] = await pool.query(
-      'SELECT * FROM assessments WHERE classroom_id = ? AND subject_id = ? ORDER BY id DESC',
-      [classroom_id, subject_id]
-    );
+    let sql = `
+      SELECT 
+        a.*, 
+        s.name as subject_name, 
+        s.code as subject_code, 
+        sem.semester_number, 
+        sem.academic_year, 
+        sem.batch,
+        t.name as teacher_name, 
+        (SELECT COUNT(*) FROM students stud WHERE stud.classroom_id = a.classroom_id) as student_count
+      FROM assessments a
+      JOIN subjects s ON a.subject_id = s.id
+      JOIN classrooms c ON a.classroom_id = c.id
+      JOIN semesters sem ON c.semester_id = sem.id
+      LEFT JOIN teachers t ON a.created_by = t.id
+    `;
+    const params = [];
+    const conditions = [];
+
+    if (classroom_id) {
+      conditions.push('a.classroom_id = ?');
+      params.push(classroom_id);
+    }
+    if (subject_id) {
+      conditions.push('a.subject_id = ?');
+      params.push(subject_id);
+    }
+
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    sql += ' ORDER BY a.id DESC';
+
+    const [rows] = await pool.query(sql, params);
     res.json({ success: true, data: rows });
   } catch (error) {
     handleError(res, error, 'Failed to fetch assessments');
@@ -582,7 +615,7 @@ const createAssessment = async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const { subject_id, classroom_id, name, type, max_marks, questions } = req.body;
+    const { subject_id, classroom_id, name, type, max_marks, entry_mode, questions } = req.body;
     const createdBy = req.user.id;
 
     if (!subject_id || !classroom_id || !name || !type || !max_marks) {
@@ -590,9 +623,9 @@ const createAssessment = async (req, res) => {
     }
 
     const [assessResult] = await connection.query(
-      `INSERT INTO assessments (subject_id, classroom_id, name, type, max_marks, created_by) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [subject_id, classroom_id, name, type, max_marks, createdBy]
+      `INSERT INTO assessments (subject_id, classroom_id, name, type, max_marks, entry_mode, created_by) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [subject_id, classroom_id, name, type, max_marks, entry_mode || 'question', createdBy]
     );
 
     const assessmentId = assessResult.insertId;
@@ -617,6 +650,112 @@ const createAssessment = async (req, res) => {
     connection.release();
   }
 };
+
+const updateAssessment = async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id } = req.params;
+    const { name, type, max_marks, entry_mode, questions } = req.body;
+
+    await connection.query(
+      `UPDATE assessments 
+       SET name = ?, type = ?, max_marks = ?, entry_mode = ? 
+       WHERE id = ?`,
+      [name, type, max_marks, entry_mode || 'question', id]
+    );
+
+    if (questions && Array.isArray(questions)) {
+      const [existing] = await connection.query('SELECT id, question_no FROM question_papers WHERE assessment_id = ?', [id]);
+      const existingMap = {};
+      existing.forEach(q => {
+        existingMap[q.question_no] = q.id;
+      });
+
+      const activeQNos = [];
+      for (const q of questions) {
+        activeQNos.push(q.question_no);
+        if (existingMap[q.question_no]) {
+          await connection.query(
+            `UPDATE question_papers 
+             SET max_marks = ?, co_id = ?, difficulty_level = ?, bloom_level = ?, question_type = ? 
+             WHERE id = ?`,
+            [q.max_marks, q.co_id || null, q.difficulty_level || 'Medium', q.bloom_level || 'Remembering', q.question_type || 'Theory', existingMap[q.question_no]]
+          );
+        } else {
+          await connection.query(
+            `INSERT INTO question_papers (assessment_id, question_no, max_marks, co_id, difficulty_level, bloom_level, question_type) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [id, q.question_no, q.max_marks, q.co_id || null, q.difficulty_level || 'Medium', q.bloom_level || 'Remembering', q.question_type || 'Theory']
+          );
+        }
+      }
+
+      if (activeQNos.length > 0) {
+        await connection.query('DELETE FROM question_papers WHERE assessment_id = ? AND question_no NOT IN (?)', [id, activeQNos]);
+      } else {
+        await connection.query('DELETE FROM question_papers WHERE assessment_id = ?', [id]);
+      }
+    }
+
+    await connection.commit();
+    res.json({ success: true, message: 'Assessment updated successfully' });
+  } catch (error) {
+    await connection.rollback();
+    handleError(res, error, 'Failed to update assessment');
+  } finally {
+    connection.release();
+  }
+};
+
+const deleteAssessment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM assessments WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Assessment deleted successfully' });
+  } catch (error) {
+    handleError(res, error, 'Failed to delete assessment');
+  }
+};
+
+const duplicateAssessment = async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id } = req.params;
+
+    const [assessments] = await connection.query('SELECT * FROM assessments WHERE id = ?', [id]);
+    if (assessments.length === 0) {
+      return res.status(404).json({ success: false, message: 'Original assessment not found' });
+    }
+    const original = assessments[0];
+
+    const [dupResult] = await connection.query(
+      `INSERT INTO assessments (subject_id, classroom_id, name, type, max_marks, entry_mode, status, created_by) 
+       VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?)`,
+      [original.subject_id, original.classroom_id, `${original.name} (Copy)`, original.type, original.max_marks, original.entry_mode || 'question', req.user.id]
+    );
+    const newAssessmentId = dupResult.insertId;
+
+    const [questions] = await connection.query('SELECT * FROM question_papers WHERE assessment_id = ?', [id]);
+    for (const q of questions) {
+      await connection.query(
+        `INSERT INTO question_papers (assessment_id, question_no, max_marks, co_id, difficulty_level, bloom_level, question_type) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [newAssessmentId, q.question_no, q.max_marks, q.co_id, q.difficulty_level, q.bloom_level, q.question_type]
+      );
+    }
+
+    await connection.commit();
+    res.status(201).json({ success: true, message: 'Assessment duplicated successfully', data: { id: newAssessmentId } });
+  } catch (error) {
+    await connection.rollback();
+    handleError(res, error, 'Failed to duplicate assessment');
+  } finally {
+    connection.release();
+  }
+};
+
 
 // ==========================================
 // 9. MARKS GRADING & AUTO-LOADING
@@ -665,31 +804,165 @@ const saveGradingMarks = async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const { assessment_id, marks } = req.body;
+    const { assessment_id, questions, marks } = req.body;
+
+    // Debug logging (Bug 9)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Incoming API request: POST /api/erp/marks/save');
+      console.log('Request body:', JSON.stringify(req.body, null, 2));
+    }
 
     if (!assessment_id || !marks || !Array.isArray(marks)) {
       return res.status(400).json({ success: false, message: 'Invalid marks grading payload' });
     }
 
-    for (const record of marks) {
-      const { student_id, question_id, co_id, marks_obtained, is_absent } = record;
-      // We will perform an upsert (INSERT ... ON DUPLICATE KEY UPDATE)
-      await connection.query(
-        `INSERT INTO student_marks (student_id, assessment_id, question_id, co_id, marks_obtained, is_absent) 
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE marks_obtained = VALUES(marks_obtained), is_absent = VALUES(is_absent)`,
-        [student_id, assessment_id, question_id || null, co_id || null, marks_obtained || 0, is_absent ? 1 : 0]
+    // 1. Verify Assessment exists (Bug 10)
+    const [assessmentRows] = await connection.query('SELECT * FROM assessments WHERE id = ?', [assessment_id]);
+    if (assessmentRows.length === 0) {
+      if (process.env.NODE_ENV !== 'production') console.log(`Database Integrity Check Failed: Assessment ID ${assessment_id} not found.`);
+      return res.status(404).json({ success: false, message: `Database Integrity Error: Assessment with ID ${assessment_id} does not exist.` });
+    }
+    const assessment = assessmentRows[0];
+
+    // 2. Verify Classroom exists (Bug 10)
+    const [classroomRows] = await connection.query('SELECT * FROM classrooms WHERE id = ?', [assessment.classroom_id]);
+    if (classroomRows.length === 0) {
+      if (process.env.NODE_ENV !== 'production') console.log(`Database Integrity Check Failed: Classroom ID ${assessment.classroom_id} not found.`);
+      return res.status(404).json({ success: false, message: `Database Integrity Error: Classroom with ID ${assessment.classroom_id} does not exist.` });
+    }
+    const classroom = classroomRows[0];
+
+    // 3. Verify Subject exists (Bug 10)
+    const [subjectRows] = await connection.query('SELECT * FROM subjects WHERE id = ?', [assessment.subject_id]);
+    if (subjectRows.length === 0) {
+      if (process.env.NODE_ENV !== 'production') console.log(`Database Integrity Check Failed: Subject ID ${assessment.subject_id} not found.`);
+      return res.status(404).json({ success: false, message: `Database Integrity Error: Subject with ID ${assessment.subject_id} does not exist.` });
+    }
+
+    // 4. Verify Teacher exists (Bug 10)
+    if (assessment.created_by) {
+      const [teacherRows] = await connection.query('SELECT * FROM teachers WHERE id = ?', [assessment.created_by]);
+      if (teacherRows.length === 0) {
+        if (process.env.NODE_ENV !== 'production') console.log(`Database Integrity Check Failed: Teacher ID ${assessment.created_by} not found.`);
+        return res.status(404).json({ success: false, message: `Database Integrity Error: Teacher with ID ${assessment.created_by} does not exist.` });
+      }
+    }
+
+    // 5. Verify Semester / Academic Year exists (Bug 10)
+    const [semesterRows] = await connection.query('SELECT * FROM semesters WHERE id = ?', [classroom.semester_id]);
+    if (semesterRows.length === 0) {
+      if (process.env.NODE_ENV !== 'production') console.log(`Database Integrity Check Failed: Semester ID ${classroom.semester_id} not found.`);
+      return res.status(404).json({ success: false, message: `Database Integrity Error: Academic Year / Semester with ID ${classroom.semester_id} does not exist.` });
+    }
+
+    // 6. Verify Students exist in the database (Bug 10)
+    const studentIds = [...new Set(marks.map(m => m.student_id))].filter(Boolean);
+    if (studentIds.length > 0) {
+      const [existingStudents] = await connection.query(
+        'SELECT id FROM students WHERE id IN (?)',
+        [studentIds]
       );
+      const existingStudentIds = existingStudents.map(s => s.id);
+      const missingStudentIds = studentIds.filter(id => !existingStudentIds.includes(id));
+      if (missingStudentIds.length > 0) {
+        if (process.env.NODE_ENV !== 'production') console.log(`Database Integrity Check Failed: Student IDs ${missingStudentIds.join(', ')} not found.`);
+        return res.status(400).json({
+          success: false,
+          message: `Database Integrity Error: Student(s) with ID(s) ${missingStudentIds.join(', ')} do not exist in the database. Please add them to the roster first.`
+        });
+      }
+    }
+
+    // Sync question configurations if sent
+    if (questions && Array.isArray(questions)) {
+      const [existingQs] = await connection.query('SELECT id, question_no FROM question_papers WHERE assessment_id = ?', [assessment_id]);
+      const existingMap = {};
+      existingQs.forEach(q => {
+        existingMap[q.question_no] = q.id;
+      });
+
+      const activeQNos = [];
+      for (const q of questions) {
+        activeQNos.push(q.question_no);
+        if (existingMap[q.question_no]) {
+          await connection.query(
+            `UPDATE question_papers 
+             SET max_marks = ?, co_id = ?, difficulty_level = ?, bloom_level = ?, question_type = ? 
+             WHERE id = ?`,
+            [q.max_marks, q.co_id || null, q.difficulty_level || 'Medium', q.bloom_level || 'Remembering', q.question_type || 'Theory', existingMap[q.question_no]]
+          );
+        } else {
+          await connection.query(
+            `INSERT INTO question_papers (assessment_id, question_no, max_marks, co_id, difficulty_level, bloom_level, question_type) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [assessment_id, q.question_no, q.max_marks, q.co_id || null, q.difficulty_level || 'Medium', q.bloom_level || 'Remembering', q.question_type || 'Theory']
+          );
+        }
+      }
+
+      // Delete questions not in active list
+      if (activeQNos.length > 0) {
+        await connection.query('DELETE FROM question_papers WHERE assessment_id = ? AND question_no NOT IN (?)', [assessment_id, activeQNos]);
+      } else {
+        await connection.query('DELETE FROM question_papers WHERE assessment_id = ?', [assessment_id]);
+      }
+    }
+
+    // Load updated question paper config map
+    const [syncedQs] = await connection.query('SELECT id, question_no, co_id FROM question_papers WHERE assessment_id = ?', [assessment_id]);
+    const qNoToIdMap = {};
+    const qNoToCoIdMap = {};
+    syncedQs.forEach(q => {
+      qNoToIdMap[q.question_no] = q.id;
+      qNoToCoIdMap[q.question_no] = q.co_id;
+    });
+
+    // Clean up existing student marks for this assessment to avoid duplicates from stale mappings/configs
+    await connection.query('DELETE FROM student_marks WHERE assessment_id = ?', [assessment_id]);
+
+    // 7. Save grading marks
+    for (const record of marks) {
+      let { student_id, question_id, co_id, marks_obtained, is_absent } = record;
+
+      if (record.question_no) {
+        question_id = qNoToIdMap[record.question_no] || null;
+        co_id = qNoToCoIdMap[record.question_no] || null;
+      } else if (record.question_id && questions) {
+        const matchingInputQ = questions.find(q => String(q.id) === String(record.question_id));
+        if (matchingInputQ) {
+          question_id = qNoToIdMap[matchingInputQ.question_no] || null;
+          co_id = qNoToCoIdMap[matchingInputQ.question_no] || null;
+        }
+      }
+
+      const query = `INSERT INTO student_marks (student_id, assessment_id, question_id, co_id, marks_obtained, is_absent) 
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE marks_obtained = VALUES(marks_obtained), is_absent = VALUES(is_absent)`;
+      const params = [student_id, assessment_id, question_id || null, co_id || null, marks_obtained || 0, is_absent ? 1 : 0];
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Executing query:', query);
+        console.log('Parameters:', params);
+      }
+
+      await connection.query(query, params);
     }
 
     // Set assessment status to 'Evaluated'
-    await connection.query('UPDATE assessments SET status = "Evaluated" WHERE id = ?', [assessment_id]);
+    const statusQuery = 'UPDATE assessments SET status = "Evaluated" WHERE id = ?';
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Executing query:', statusQuery, 'Parameters:', [assessment_id]);
+    }
+    await connection.query(statusQuery, [assessment_id]);
 
     await connection.commit();
     res.json({ success: true, message: 'Marks updated successfully' });
   } catch (error) {
     await connection.rollback();
-    handleError(res, error, 'Failed to save marks');
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('saveGradingMarks Error:', error);
+    }
+    res.status(500).json({ success: false, message: 'Failed to save marks', error: error.message, stack: error.stack });
   } finally {
     connection.release();
   }
@@ -777,6 +1050,9 @@ module.exports = {
   // Assessments
   getAssessments,
   createAssessment,
+  updateAssessment,
+  deleteAssessment,
+  duplicateAssessment,
   // Grading
   loadGradingBoard,
   saveGradingMarks,

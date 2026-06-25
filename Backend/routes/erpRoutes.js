@@ -34,6 +34,9 @@ const {
   saveCOPOMappings,
   getAssessments,
   createAssessment,
+  updateAssessment,
+  deleteAssessment,
+  duplicateAssessment,
   loadGradingBoard,
   saveGradingMarks,
   getERPDashboardStats,
@@ -100,6 +103,9 @@ router.post('/obe/mapping', saveCOPOMappings);
 // Assessments
 router.get('/assessments', getAssessments);
 router.post('/assessments', createAssessment);
+router.put('/assessments/:id', updateAssessment);
+router.delete('/assessments/:id', deleteAssessment);
+router.post('/assessments/:id/duplicate', duplicateAssessment);
 
 // Marks Grading Board
 router.get('/marks/load', loadGradingBoard);

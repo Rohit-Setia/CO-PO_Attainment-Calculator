@@ -8,7 +8,8 @@ import FileActions from "@/components/FileActions";
 import QuestionWiseTable from "@/components/QuestionWiseTable";
 import { parseExcel } from "@/utils/excelParser";
 import { useAuth } from "@/context/AuthContext";
-import { fetchStudents, fetchGradingBoard, fetchCOs, saveGradingMarks, triggerDBAttainmentCalculation } from "../Api/erpApi";
+import { fetchStudents, fetchGradingBoard, fetchCOs, saveGradingMarks, triggerDBAttainmentCalculation, fetchAttainmentHistory } from "../Api/erpApi";
+import AttainmentResults from "@/components/AttainmentResult";
 
 export default function QuestionSetup() {
   const navigate = useNavigate();
@@ -20,8 +21,8 @@ export default function QuestionSetup() {
   const [dbQuestions, setDbQuestions] = useState([]);
   const [dbMarks, setDbMarks] = useState([]);
   const [dbCOs, setDbCOs] = useState([]);
-
   const [students, setStudents] = useState([]);
+  const [historicalResults, setHistoricalResults] = useState(null);
   
   // Dynamic question configuration state
   const [numQuestions, setNumQuestions] = useState(5);
@@ -102,6 +103,19 @@ export default function QuestionSetup() {
           setStudents(studentsList);
         }
 
+        if (details.isReadOnly) {
+          try {
+            const historyRes = await fetchAttainmentHistory(details.subjectId, details.classroomId);
+            const historyList = historyRes.data?.data || [];
+            const currentRecord = historyList.find(r => r.assessment_id === details.assessmentId);
+            if (currentRecord) {
+              setHistoricalResults(currentRecord.results);
+            }
+          } catch (historyErr) {
+            console.error("Failed to fetch historical results", historyErr);
+          }
+        }
+
       } catch (err) {
         console.error("Failed to load data", err);
         setStatus("Failed to load data from server");
@@ -136,13 +150,21 @@ export default function QuestionSetup() {
   const calculateStudentPerformance = useCallback(
     (student, currentQuestions) => {
       const qMarks = student.questionMarks || {};
-      const coPerformance = { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 };
+      const coPerformance = dbCOs.reduce((acc, _, index) => {
+        const coKey = `co${index + 1}`;
+        acc[coKey] = 0;
+        return acc;
+      }, {});
       let totalMarks = 0;
 
       currentQuestions.forEach((q) => {
-        const mark = qMarks[q.id] || 0;
-        coPerformance[q.co] += mark;
-        totalMarks += mark;
+        const rawMark = qMarks[q.id];
+        const mark = rawMark === "" || rawMark === undefined || rawMark === null ? 0 : parseFloat(rawMark);
+        const validMark = isNaN(mark) ? 0 : mark;
+        if (coPerformance[q.co] !== undefined) {
+          coPerformance[q.co] += validMark;
+        }
+        totalMarks += validMark;
       });
 
       return {
@@ -151,7 +173,7 @@ export default function QuestionSetup() {
         totalMarks,
       };
     },
-    []
+    [dbCOs]
   );
 
   useEffect(() => {
@@ -170,11 +192,11 @@ export default function QuestionSetup() {
     if (questions.length > 0) {
       const coMax = questions.reduce((acc, q) => {
         const coKey = String(q.co).toLowerCase();
-        acc[coKey] = (acc[coKey] || 0) + q.maxMarks;
+        acc[coKey] = (acc[coKey] || 0) + Number(q.maxMarks);
         return acc;
       }, { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 });
 
-      const totalMax = questions.reduce((sum, q) => sum + q.maxMarks, 0);
+      const totalMax = questions.reduce((sum, q) => sum + Number(q.maxMarks), 0);
 
       const config = {
         questions,
@@ -190,21 +212,28 @@ export default function QuestionSetup() {
       setStudents((prev) => {
         const updated = [...prev];
         const student = { ...updated[index] };
-        const qMarks = { ...student.questionMarks, [questionId]: value };
-
-        const question = questions.find((q) => q.id === questionId);
-        if (question && value !== "" && Number(value) > question.maxMarks) {
-          setStatus(`Warning: Mark for Q${questionId} exceeds max marks (${question.maxMarks})`);
-        } else if (value !== "" && Number(value) < 0) {
-          setStatus(`Warning: Mark for Q${questionId} cannot be negative`);
-        } else {
-          setStatus(null);
+        
+        let valToStore = value;
+        if (value === "" || /^\d*\.?\d*$/.test(value)) {
+          const question = questions.find((q) => q.id === questionId);
+          const maxVal = question ? Number(question.maxMarks) : 100;
+          if (value !== "") {
+            const num = parseFloat(value);
+            if (num > maxVal) {
+              setStatus(`Warning: Mark for ${question ? question.label : ('Q' + questionId)} exceeds max marks (${maxVal})`);
+            } else {
+              setStatus(null);
+            }
+          } else {
+            setStatus(null);
+          }
+          
+          const qMarks = { ...student.questionMarks, [questionId]: valToStore };
+          updated[index] = calculateStudentPerformance(
+            { ...student, questionMarks: qMarks },
+            questions
+          );
         }
-
-        updated[index] = calculateStudentPerformance(
-          { ...student, questionMarks: qMarks },
-          questions
-        );
         return updated;
       });
     },
@@ -214,10 +243,17 @@ export default function QuestionSetup() {
   const updateQuestionConfig = useCallback((index, field, value) => {
     setQuestions((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
+      let coId = updated[index].coId;
+      if (field === "co") {
+        const coIdx = parseInt(value.replace("co", "")) - 1;
+        if (dbCOs[coIdx]) {
+          coId = dbCOs[coIdx].id;
+        }
+      }
+      updated[index] = { ...updated[index], [field]: value, ...(field === "co" ? { coId } : {}) };
       return updated;
     });
-  }, []);
+  }, [dbCOs]);
 
   const updateStudentInfo = useCallback((index, field, value) => {
     setStudents((prev) => {
@@ -238,7 +274,11 @@ export default function QuestionSetup() {
       name: "",
       questionMarks: {},
       totalMarks: 0,
-      co1: 0, co2: 0, co3: 0, co4: 0, co5: 0
+      ...dbCOs.reduce((acc, _, index) => {
+        const coKey = `co${index + 1}`;
+        acc[coKey] = 0;
+        return acc;
+      }, {})
     };
     setStudents([...students, newStudent]);
   };
@@ -257,15 +297,43 @@ export default function QuestionSetup() {
       }
     }
 
+    // Validate all marks (Bug 3 / Bug 5)
+    for (const student of students) {
+      for (const q of questions) {
+        const markVal = student.questionMarks[q.id];
+        const mark = markVal === "" || markVal === undefined || markVal === null ? 0 : parseFloat(markVal);
+        const maxVal = Number(q.maxMarks) || 0;
+        if (mark > maxVal) {
+          alert(`Validation Error: Student "${student.name || 'Unknown'}" (${student.roll || 'Unknown Roll'}) has marks for question ${q.label || ('Q' + q.id)} (${mark}) exceeding the maximum limit (${maxVal}).`);
+          return;
+        }
+      }
+    }
+
     try {
+      // Prepare questions blueprint payload
+      const questionsPayload = questions.map(q => {
+        const coIdx = parseInt(q.co.replace("co", "")) - 1;
+        const coId = dbCOs[coIdx] ? dbCOs[coIdx].id : null;
+        return {
+          question_no: parseInt(q.label.replace("Q", "")),
+          max_marks: Number(q.maxMarks),
+          co_id: q.coId || coId,
+          difficulty_level: q.difficulty || 'Medium',
+          bloom_level: q.bloomLevel || 'Remembering',
+          question_type: q.type || 'Theory'
+        };
+      });
+
       // Prepare marks for saving
       const marksPayload = students.flatMap(student => {
         return questions.map(q => {
-          const mark = student.questionMarks[q.id] || 0;
+          const markVal = student.questionMarks[q.id];
+          const mark = markVal === "" || markVal === undefined || markVal === null ? 0 : parseFloat(markVal);
+          const qNo = parseInt(q.label.replace("Q", ""));
           return {
             student_id: student.id,
-            question_id: q.id,
-            co_id: q.coId || null,
+            question_no: qNo,
             marks_obtained: mark,
             is_absent: false
           };
@@ -274,6 +342,7 @@ export default function QuestionSetup() {
       
       await saveGradingMarks({
         assessment_id: academicDetails.assessmentId,
+        questions: questionsPayload,
         marks: marksPayload
       });
 
@@ -281,14 +350,22 @@ export default function QuestionSetup() {
         const coKey = String(q.co).toLowerCase();
         acc[coKey] = (acc[coKey] || 0) + q.maxMarks;
         return acc;
-      }, { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 });
+      }, dbCOs.reduce((acc, _, index) => {
+          const coKey = `co${index + 1}`;
+          acc[coKey] = 0;
+          return acc;
+        }, {}));
 
       const totalMax = questions.reduce((sum, q) => sum + q.maxMarks, 0);
 
       // Recalculate CO totals for each student to ensure accuracy before saving
       const finalizedStudents = students.map((student) => {
         const qMarks = student.questionMarks || {};
-        const coPerformance = { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 };
+        const coPerformance = dbCOs.reduce((acc, _, index) => {
+          const coKey = `co${index + 1}`;
+          acc[coKey] = 0;
+          return acc;
+        }, {});
         let totalMarks = 0;
 
         questions.forEach((q) => {
@@ -376,6 +453,7 @@ export default function QuestionSetup() {
                 <Input
                   type="text"
                   value={numQuestionsInput}
+                  disabled={academicDetails?.isReadOnly}
                   onChange={(e) => {
                     const valStr = e.target.value;
                     if (/^\d*$/.test(valStr)) {
@@ -405,27 +483,33 @@ export default function QuestionSetup() {
 
           <Card className="lg:col-span-3">
             <CardContent className="p-4 flex items-center justify-between h-full">
-               <FileActions
-                  students={students}
-                  onUpload={(file) => parseExcel(file, { co1: 100, co2: 100, co3: 100, co4: 100, co5: 100 }, 500, (parsedStudents) => {
-                    setStudents(parsedStudents);
-                    if (parsedStudents.length > 0 && parsedStudents[0].questionMarks) {
-                       const qIds = Object.keys(parsedStudents[0].questionMarks).map(Number);
-                       if (qIds.length > 0) {
-                         const maxQ = Math.max(...qIds);
-                         if (maxQ >= 5 && maxQ <= 30) {
-                           setNumQuestions(maxQ);
-                           setNumQuestionsInput(maxQ.toString());
-                         }
-                       }
-                    }
-                  }, setStatus, questions)}
-                  onDownload={() => {}}
-                  results={null}
-                />
-                <Button variant="outline" onClick={addStudentRow} className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100">
-                  + Add Student Row
-                </Button>
+               {!academicDetails?.isReadOnly ? (
+                 <>
+                   <FileActions
+                      students={students}
+                      onUpload={(file) => parseExcel(file, { co1: 100, co2: 100, co3: 100, co4: 100, co5: 100 }, 500, (parsedStudents) => {
+                        setStudents(parsedStudents);
+                        if (parsedStudents.length > 0 && parsedStudents[0].questionMarks) {
+                           const qIds = Object.keys(parsedStudents[0].questionMarks).map(Number);
+                           if (qIds.length > 0) {
+                             const maxQ = Math.max(...qIds);
+                             if (maxQ >= 5 && maxQ <= 30) {
+                               setNumQuestions(maxQ);
+                               setNumQuestionsInput(maxQ.toString());
+                             }
+                           }
+                        }
+                      }, setStatus, questions)}
+                      onDownload={() => {}}
+                      results={null}
+                    />
+                    <Button variant="outline" onClick={addStudentRow} className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100">
+                      + Add Student Row
+                    </Button>
+                 </>
+               ) : (
+                 <div className="text-slate-500 font-medium text-sm">Read-only view of assessment marks setup.</div>
+               )}
             </CardContent>
           </Card>
         </div>
@@ -444,18 +528,30 @@ export default function QuestionSetup() {
             updateQuestionConfig={updateQuestionConfig}
             updateStudentInfo={updateStudentInfo}
             removeStudent={removeStudent}
+            isReadOnly={academicDetails?.isReadOnly}
           />
         </div>
 
+        {historicalResults && (
+          <div className="mb-8">
+            <h2 className="mb-4 text-lg font-semibold text-slate-900">Results</h2>
+            <AttainmentResults results={historicalResults} isLoading={false} />
+          </div>
+        )}
+
         <div className="flex justify-center gap-4">
-          <Button variant="outline" size="lg" onClick={() => navigate("/select")}>← Back</Button>
-          <Button
-            onClick={handleSubmit}
-            size="lg"
-            className="bg-blue-600 hover:bg-blue-700 px-16 font-bold"
-          >
-            Save & View Results →
+          <Button variant="outline" size="lg" onClick={() => navigate(academicDetails?.isReadOnly ? "/dashboard" : "/select")}>
+            {academicDetails?.isReadOnly ? "Back to Dashboard" : "← Back"}
           </Button>
+          {!academicDetails?.isReadOnly && (
+            <Button
+              onClick={handleSubmit}
+              size="lg"
+              className="bg-blue-600 hover:bg-blue-700 px-16 font-bold"
+            >
+              Save & View Results →
+            </Button>
+          )}
         </div>
       </div>
     </div>

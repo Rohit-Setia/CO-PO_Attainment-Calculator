@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui/input"
 import { COS } from "@/utils/calculations"
 
-export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, thresholdPercent, setThresholdPercent, levelCriteria, setLevelCriteria }) {
+export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, thresholdPercent, setThresholdPercent, levelCriteria, setLevelCriteria, isReadOnly }) {
 
   const isValidFloat = (val) => {
     return val === "" || /^\d*\.?\d*$/.test(val);
@@ -104,6 +104,7 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
           value={totalMax !== undefined && totalMax !== null ? totalMax : ""}
           onChange={(e) => handleTotalChange(e.target.value)}
           onBlur={handleTotalBlur}
+          disabled={isReadOnly}
         />
       </div>
 
@@ -120,6 +121,7 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
                 handleCoChange(co, e.target.value)
               }
               onBlur={() => handleCoBlur(co)}
+              disabled={isReadOnly}
             />
           </div>
         ))}
@@ -134,6 +136,7 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
             value={thresholdPercent !== undefined && thresholdPercent !== null ? thresholdPercent : ""}
             onChange={(e) => handleThresholdChange(e.target.value)}
             onBlur={handleThresholdBlur}
+            disabled={isReadOnly}
             className="w-32 font-bold text-center" placeholder="40"
           />
         </div>
@@ -145,6 +148,7 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
               value={levelCriteria?.level3 !== undefined && levelCriteria?.level3 !== null ? levelCriteria.level3 : ""} 
               onChange={(e) => handleLevelChange('level3', e.target.value)}
               onBlur={() => handleLevelBlur('level3')}
+              disabled={isReadOnly}
               className="w-20 font-bold text-center" 
               placeholder="70"
             />≥L3
@@ -153,6 +157,7 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
               value={levelCriteria?.level2 !== undefined && levelCriteria?.level2 !== null ? levelCriteria.level2 : ""} 
               onChange={(e) => handleLevelChange('level2', e.target.value)}
               onBlur={() => handleLevelBlur('level2')}
+              disabled={isReadOnly}
               className="w-20 font-bold text-center" 
               placeholder="60"
             />≥L2
@@ -161,6 +166,7 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
               value={levelCriteria?.level1 !== undefined && levelCriteria?.level1 !== null ? levelCriteria.level1 : ""} 
               onChange={(e) => handleLevelChange('level1', e.target.value)}
               onBlur={() => handleLevelBlur('level1')}
+              disabled={isReadOnly}
               className="w-20 font-bold text-center" 
               placeholder="50"
             />≥L1

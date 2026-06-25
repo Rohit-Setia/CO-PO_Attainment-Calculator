@@ -197,12 +197,32 @@ const initDatabase = async () => {
         max_marks DECIMAL(5,2) NOT NULL,
         status VARCHAR(20) DEFAULT 'Pending',
         created_by INT,
+        entry_mode VARCHAR(20) DEFAULT 'question',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
         FOREIGN KEY (classroom_id) REFERENCES classrooms(id) ON DELETE CASCADE,
         FOREIGN KEY (created_by) REFERENCES teachers(id) ON DELETE SET NULL
       ) ENGINE=InnoDB;
     `);
     console.log('- assessments table ready');
+
+    // Alter Assessments Table to support entry_mode, created_at, updated_at
+    const [assessColumns] = await connection.query('SHOW COLUMNS FROM assessments');
+    const assessColNames = assessColumns.map(col => col.Field);
+    if (!assessColNames.includes('entry_mode')) {
+      await connection.query("ALTER TABLE assessments ADD COLUMN entry_mode VARCHAR(20) DEFAULT 'question'");
+      console.log('- Added entry_mode to assessments');
+    }
+    if (!assessColNames.includes('created_at')) {
+      await connection.query('ALTER TABLE assessments ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+      console.log('- Added created_at to assessments');
+    }
+    if (!assessColNames.includes('updated_at')) {
+      await connection.query('ALTER TABLE assessments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+      console.log('- Added updated_at to assessments');
+    }
+
 
     // 13. Question Papers Table
     await connection.query(`

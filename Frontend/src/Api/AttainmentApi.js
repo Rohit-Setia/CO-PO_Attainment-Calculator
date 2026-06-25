@@ -2,19 +2,20 @@ import axios from 'axios'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 
-export const calculateAttainment = async (students, coMax, thresholdPercent,levelCriteria,) => {
+export const calculateAttainment = async (students, coMax, thresholdPercent, levelCriteria, options = {}) => {
+  const { assessment_id, subject_id, classroom_id } = options;
   const data = {
     students: students.map(s => ({
       regNo: s.roll,
       name: s.name,
-      co1: s.co1, co2: s.co2, co3: s.co3, co4: s.co4, co5: s.co5
+      ...Object.keys(coMax || {}).reduce((acc, coKey) => ({ ...acc, [coKey]: s[coKey] }), {})
     })),
-    coMaxMarks: {
-      CO1: coMax.co1, CO2: coMax.co2, CO3: coMax.co3, 
-      CO4: coMax.co4, CO5: coMax.co5
-    },
+    coMaxMarks: Object.keys(coMax || {}).reduce((acc, coKey) => ({ ...acc, [coKey.toUpperCase()]: coMax[coKey] }), {}),
     thresholdPercent,
-    levelCriteria 
+    levelCriteria,
+    ...(assessment_id && { assessment_id }),
+    ...(subject_id && { subject_id }),
+    ...(classroom_id && { classroom_id })
   }
   
   return axios.post(`${API_BASE}/calculate`, data)

@@ -55,6 +55,9 @@ export const saveCOPOMappings = (payload) => axiosClient.post('/erp/obe/mapping'
 export const fetchAssessments = (classroom_id, subject_id) => 
   axiosClient.get('/erp/assessments', { params: { classroom_id, subject_id } });
 export const createAssessment = (payload) => axiosClient.post('/erp/assessments', payload);
+export const updateAssessment = (id, payload) => axiosClient.put(`/erp/assessments/${id}`, payload);
+export const deleteAssessment = (id) => axiosClient.delete(`/erp/assessments/${id}`);
+export const duplicateAssessment = (id) => axiosClient.post(`/erp/assessments/${id}/duplicate`);
 
 // Grading
 export const fetchGradingBoard = (classroom_id, assessment_id) =>

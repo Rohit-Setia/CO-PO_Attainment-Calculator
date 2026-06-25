@@ -4,7 +4,7 @@ import { COS } from "@/utils/calculations";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export default function QuestionWiseTable({ students, questions, updateMark, updateQuestionConfig, updateStudentInfo, removeStudent }) {
+export default function QuestionWiseTable({ students, questions, updateMark, updateQuestionConfig, updateStudentInfo, removeStudent, isReadOnly }) {
   return (
     <div className="w-full max-w-full overflow-x-auto rounded-lg border border-slate-200 shadow-sm bg-white">
       <table className="w-full text-sm border-collapse min-w-max">
@@ -24,6 +24,7 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                   <select
                     value={q.co}
                     onChange={(e) => updateQuestionConfig(i, "co", e.target.value)}
+                    disabled={isReadOnly}
                     className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium focus:border-blue-500 focus:outline-none"
                   >
                     {COS.map((co) => (
@@ -53,13 +54,14 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                         }
                         updateQuestionConfig(i, "maxMarks", parsed);
                       }}
+                      disabled={isReadOnly}
                       className="w-full rounded border border-slate-300 bg-white px-1.5 py-1 text-center text-xs focus:border-blue-500 focus:outline-none font-bold"
                     />
                   </div>
                 </div>
               </th>
             ))}
-            <th className="px-4 py-4 text-center font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Action</th>
+            {!isReadOnly && <th className="px-4 py-4 text-center font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Action</th>}
           </tr>
         </thead>
 
@@ -75,6 +77,7 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                     value={student.roll || ""}
                     onChange={(e) => updateStudentInfo(i, "roll", e.target.value)}
                     placeholder="Enter Reg No"
+                    disabled={isReadOnly}
                     className="h-9 w-full text-sm border-slate-200 focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
@@ -85,6 +88,7 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                     value={student.name || ""}
                     onChange={(e) => updateStudentInfo(i, "name", e.target.value)}
                     placeholder="Enter Student Name"
+                    disabled={isReadOnly}
                     className="h-9 w-full text-sm border-slate-200 focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
@@ -113,10 +117,10 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                         } else {
                           let parsed = parseFloat(val);
                           if (parsed < 0) parsed = 0;
-                          if (parsed > q.maxMarks) parsed = q.maxMarks;
                           updateMark(i, q.id, parsed);
                         }
                       }}
+                      disabled={isReadOnly}
                       className={`mx-auto h-9 w-20 text-center font-semibold focus:ring-2 focus:ring-blue-500 ${
                         (Number(student.questionMarks?.[q.id]) || 0) > q.maxMarks ? "border-red-500 text-red-600 bg-red-50" : "bg-white border-slate-200"
                       } ${
@@ -126,17 +130,19 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                   </td>
                 );
               })}
-              <td className="px-4 py-3 text-center min-w-[120px]">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => removeStudent(i)}
-                  className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 flex items-center gap-1 mx-auto px-3"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span className="text-[10px] font-bold uppercase">Remove</span>
-                </Button>
-              </td>
+              {!isReadOnly && (
+                <td className="px-4 py-3 text-center min-w-[120px]">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => removeStudent(i)}
+                    className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 flex items-center gap-1 mx-auto px-3"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span className="text-[10px] font-bold uppercase">Remove</span>
+                  </Button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

@@ -13,27 +13,23 @@ import AttainmentResults from '@/components/AttainmentResult'
 import { Button } from "@/components/ui/button"
 
 import { parseExcel } from "@/utils/excelParser"
-import { COS } from "@/utils/calculations"
 import { useAuth } from "@/context/AuthContext"
-import { fetchStudents, fetchGradingBoard, fetchCOs, saveGradingMarks, triggerDBAttainmentCalculation } from "../Api/erpApi"
+import { fetchStudents, fetchGradingBoard, fetchCOs, saveGradingMarks, triggerDBAttainmentCalculation, fetchAttainmentHistory } from "../Api/erpApi"
 
 const normalizeStudent = (student, coMax, totalMax) => {
   const fixed = { ...student }
   let total = 0
+  const coKeys = Object.keys(coMax || {})
 
-  COS.forEach((co) => {
-    let val = Number(fixed[co])
+  coKeys.forEach((co) => {
+    let val = parseFloat(fixed[co])
 
     if (isNaN(val) || val < 0) val = 0
-    if (val > coMax[co]) {
-      val = coMax[co]
-      fixed[co] = coMax[co]
-    }
-
-    total += val
+    const cappedVal = val > (coMax[co] || 9999) ? (coMax[co] || 9999) : val
+    total += cappedVal
   })
 
-  fixed.totalMarks = Math.min(total, totalMax)
+  fixed.totalMarks = Math.min(total, totalMax || 9999)
   return fixed
 }
 
@@ -45,9 +41,9 @@ export default function Student() {
   const [dbStudents, setDbStudents] = useState([])
   const [dbMarks, setDbMarks] = useState([])
   const [dbCOs, setDbCOs] = useState([])
+  const [assessment, setAssessment] = useState(null)
 
   const [rawStudents, setRawStudents] = useState([])
-  const [students, setStudents] = useState([])
   const [status, setStatus] = useState(null)
 
   const [coMax, setCoMax] = useState({
@@ -113,21 +109,73 @@ export default function Student() {
         }))
         setDbStudents(studentsList)
 
-        // Load grading board for existing marks
+        // Load grading board for existing marks and configs
         const gradingRes = await fetchGradingBoard(details.classroomId, details.assessmentId)
-        const { existingMarks: marksList } = gradingRes.data.data
+        const { assessment: dbAssessment, questions: qList, existingMarks: marksList } = gradingRes.data.data
+        setAssessment(dbAssessment)
+
+        if (qList && qList.length > 0) {
+          const newCoMax = {}
+          cosList.forEach((_, idx) => {
+            newCoMax[`co${idx + 1}`] = 0
+          })
+
+          if (dbAssessment && dbAssessment.entry_mode === 'question') {
+            qList.forEach(q => {
+              const coIdx = cosList.findIndex(co => co.id === q.co_id);
+              if (coIdx !== -1) {
+                const coKey = `co${coIdx + 1}`
+                newCoMax[coKey] = (newCoMax[coKey] || 0) + Number(q.max_marks);
+              }
+            })
+          } else {
+            // CO-wise assessment: question_no directly corresponds to CO index
+            qList.forEach(q => {
+              const coIdx = cosList.findIndex(co => co.id === q.co_id);
+              if (coIdx !== -1) {
+                newCoMax[`co${coIdx + 1}`] = Number(q.max_marks);
+              } else if (q.question_no >= 1 && q.question_no <= cosList.length) {
+                newCoMax[`co${q.question_no}`] = Number(q.max_marks);
+              }
+            })
+          }
+
+          setCoMax(prev => {
+            const updated = { ...prev, ...newCoMax }
+            setTotalMax(Object.values(updated).reduce((sum, val) => sum + Number(val || 0), 0))
+            return updated
+          })
+        }
 
         if (marksList && marksList.length > 0) {
           setDbMarks(marksList)
           // Group marks by student and CO
           const studentMarkMap = {}
           marksList.forEach(mark => {
-            if (!studentMarkMap[mark.student_id]) studentMarkMap[mark.student_id] = {}
-            // For CO-wise entry, we'll group by CO
-            const coIndex = cosList.findIndex(co => co.id === mark.co_id)
-            const coKey = `co${coIndex + 1}`
-            if (coKey) {
-              studentMarkMap[mark.student_id][coKey] = (studentMarkMap[mark.student_id][coKey] || 0) + mark.marks_obtained
+            if (!studentMarkMap[mark.student_id]) {
+              studentMarkMap[mark.student_id] = {}
+              cosList.forEach((_, idx) => {
+                studentMarkMap[mark.student_id][`co${idx + 1}`] = 0
+              })
+            }
+
+            if (dbAssessment && dbAssessment.entry_mode === 'question') {
+              // Group question marks by mapped CO
+              const q = qList.find(item => item.id === mark.question_id)
+              if (q) {
+                const coIndex = cosList.findIndex(co => co.id === q.co_id)
+                if (coIndex !== -1) {
+                  const coKey = `co${coIndex + 1}`
+                  studentMarkMap[mark.student_id][coKey] = (studentMarkMap[mark.student_id][coKey] || 0) + Number(mark.marks_obtained)
+                }
+              }
+            } else {
+              // CO-wise: group marks directly by co_id
+              const coIndex = cosList.findIndex(co => co.id === mark.co_id)
+              if (coIndex !== -1) {
+                const coKey = `co${coIndex + 1}`
+                studentMarkMap[mark.student_id][coKey] = (studentMarkMap[mark.student_id][coKey] || 0) + Number(mark.marks_obtained)
+              }
             }
           })
           
@@ -140,6 +188,19 @@ export default function Student() {
           setRawStudents(studentsList)
         }
 
+        if (details.isReadOnly) {
+          try {
+            const historyRes = await fetchAttainmentHistory(details.subjectId, details.classroomId);
+            const historyList = historyRes.data?.data || [];
+            const currentRecord = historyList.find(r => r.assessment_id === details.assessmentId);
+            if (currentRecord) {
+              setResults(currentRecord.results);
+            }
+          } catch (historyErr) {
+            console.error("Failed to fetch historical results", historyErr);
+          }
+        }
+
       } catch (err) {
         console.error("Failed to load data", err)
         setStatus("Failed to load data from server")
@@ -150,28 +211,20 @@ export default function Student() {
     loadData()
   }, [navigate])
 
-  // Re-normalize students when rawStudents, coMax or totalMax changes
-  useEffect(() => {
-    if (!rawStudents.length) {
-      setStudents([]);
-      return;
-    }
+  // Derive students on-the-fly to prevent duplicate states & unnecessary re-renders (Bug 11)
+  const activeTotalMax = totalMax === "" ? 9999 : Number(totalMax);
+  const activeCoMax = {};
+  Object.keys(coMax).forEach((co) => {
+    activeCoMax[co] = coMax[co] === "" ? 9999 : Number(coMax[co]);
+  });
 
-    const activeTotalMax = totalMax === "" ? 9999 : Number(totalMax);
-    const activeCoMax = {};
-    COS.forEach((co) => {
-      activeCoMax[co] = coMax[co] === "" ? 9999 : Number(coMax[co]);
-    });
-
-    setStudents(
-      rawStudents.map((s) => normalizeStudent(s, activeCoMax, activeTotalMax))
-    );
-  }, [rawStudents, coMax, totalMax]);
+  const students = rawStudents.map((s) => normalizeStudent(s, activeCoMax, activeTotalMax));
 
   // Clear results whenever inputs change to avoid displaying stale results
   useEffect(() => {
+    if (academicDetails?.isReadOnly) return;
     setResults(null);
-  }, [rawStudents, coMax, totalMax, thresholdPercent, levelCriteria]);
+  }, [rawStudents, coMax, totalMax, thresholdPercent, levelCriteria, academicDetails?.isReadOnly]);
 
   // Real-time autosave of student marks and configurations to sessionStorage
   useEffect(() => {
@@ -204,13 +257,24 @@ export default function Student() {
         const studentRaw = { ...updatedRaw[index] }
 
         if (value === "" || /^\d*\.?\d*$/.test(value)) {
-          studentRaw[co] = value
+          if (value !== "") {
+            const num = parseFloat(value);
+            const maxVal = coMax[co] === "" ? 9999 : Number(coMax[co]);
+            if (num > maxVal) {
+              setStatus(`Warning: Mark for ${co.toUpperCase()} exceeds max marks (${maxVal})`);
+            } else {
+              setStatus(null);
+            }
+          } else {
+            setStatus(null);
+          }
+          studentRaw[co] = value;
         }
         updatedRaw[index] = studentRaw
         return updatedRaw
       })
     },
-    []
+    [coMax]
   );
 
   const handleMarkBlur = useCallback(
@@ -225,44 +289,21 @@ export default function Student() {
         let parsed = parseFloat(val)
         if (val === "" || isNaN(parsed) || parsed < 0) {
           parsed = 0
-        } else {
-          const maxVal = coMax[co] === "" ? 9999 : Number(coMax[co])
-          if (parsed > maxVal) {
-            parsed = maxVal
-          }
         }
         studentRaw[co] = parsed
         updatedRaw[index] = studentRaw
         return updatedRaw
       })
     },
-    [coMax]
+    []
   );
 
   const handleCalculate = useCallback(async () => {
     if (!students.length || isCalculating) return
 
     setIsCalculating(true)
+    setStatus(null) // Clear status before starting
     try {
-      // Save CO-wise marks first
-      const marksPayload = students.flatMap(student => {
-        return dbCOs.map((co, index) => {
-          const coKey = `co${index + 1}`
-          return {
-            student_id: student.id,
-            question_id: null,
-            co_id: co.id,
-            marks_obtained: student[coKey] || 0,
-            is_absent: false
-          }
-        })
-      })
-
-      await saveGradingMarks({
-        assessment_id: academicDetails.assessmentId,
-        marks: marksPayload
-      })
-
       const activeThreshold = thresholdPercent === "" ? 40 : Number(thresholdPercent);
       const activeLevelCriteria = {
         level3: levelCriteria.level3 === "" ? 70 : Number(levelCriteria.level3),
@@ -276,17 +317,84 @@ export default function Student() {
         activeCoMax[co] = coMax[co] === "" ? 9999 : Number(coMax[co]);
       });
 
+      // If it is CO-wise entry, we need to validate and save marks first!
+      if (assessment && assessment.entry_mode === 'co') {
+        // 1. Validate all marks
+        for (const student of students) {
+          for (let i = 0; i < dbCOs.length; i++) {
+            const coKey = `co${i + 1}`;
+            const valStr = student[coKey];
+            
+            if (valStr === undefined || valStr === null) {
+              throw new Error(`Validation Error: Student ${student.name} (${student.regNo || student.roll}) is missing marks for ${coKey.toUpperCase()}.`);
+            }
+            
+            const val = valStr === "" ? 0 : parseFloat(valStr);
+            if (isNaN(val) || val < 0) {
+              throw new Error(`Validation Error: Student ${student.name} (${student.regNo || student.roll}) has invalid marks for ${coKey.toUpperCase()}.`);
+            }
+            
+            const maxVal = coMax[coKey] === "" ? 9999 : Number(coMax[coKey]);
+            if (val > maxVal) {
+              throw new Error(`Validation Error: Student ${student.name} (${student.regNo || student.roll}) has marks for ${coKey.toUpperCase()} (${val}) exceeding maximum marks (${maxVal}).`);
+            }
+          }
+        }
+
+        // 2. Prepare questions blueprint payload
+        const questionsPayload = dbCOs.map((co, index) => {
+          const coKey = `co${index + 1}`;
+          const maxVal = coMax[coKey] === "" ? 10 : Number(coMax[coKey]);
+          return {
+            question_no: index + 1,
+            max_marks: maxVal,
+            co_id: co.id,
+            difficulty_level: 'Medium',
+            bloom_level: 'Remembering',
+            question_type: 'Theory'
+          };
+        });
+
+        // 3. Prepare marks payload
+        const marksPayload = students.flatMap(student => {
+          return dbCOs.map((co, index) => {
+            const coKey = `co${index + 1}`
+            const rawMark = student[coKey];
+            return {
+              student_id: student.id,
+              question_no: index + 1,
+              co_id: co.id,
+              marks_obtained: rawMark === "" || rawMark === undefined || rawMark === null ? 0 : parseFloat(rawMark),
+              is_absent: false
+            }
+          })
+        })
+
+        // 4. Save marks in MySQL
+        await saveGradingMarks({
+          assessment_id: academicDetails.assessmentId,
+          questions: questionsPayload,
+          marks: marksPayload
+        })
+      }
+
+      // 5. Calculate CO attainment
       const res = await calculateAttainment(
         students,
         activeCoMax,
         activeThreshold,
-        activeLevelCriteria
+        activeLevelCriteria,
+        {
+          assessment_id: academicDetails.assessmentId,
+          subject_id: academicDetails.subjectId,
+          classroom_id: academicDetails.classroomId
+        }
       )
 
-      // Save attainment result using triggerDBAttainmentCalculation
+      // 6. Calculate and store PO attainment & results
       await triggerDBAttainmentCalculation({
         students,
-        coMax: activeCoMax,
+        coMaxMarks: activeCoMax,
         thresholdPercent: activeThreshold,
         levelCriteria: activeLevelCriteria,
         subject_id: academicDetails.subjectId,
@@ -295,10 +403,11 @@ export default function Student() {
       })
 
       setResults(res.data)
-      setStatus(null) // Clear any previous errors
+      setStatus("CO/PO outcomes attainment calculated and saved to records successfully!") // Success message (Bug 8 step 8)
     } catch (error) {
       console.error("Calculation error:", error)
-      setStatus("Failed to calculate attainment: " + (error.response?.data?.message || error.message))
+      const detailError = error.response?.data?.error || error.response?.data?.message || error.message;
+      setStatus("Failed to calculate attainment: " + detailError)
     } finally {
       setIsCalculating(false)
     }
@@ -379,6 +488,10 @@ export default function Student() {
             <button
               type="button"
               onClick={() => {
+                if (academicDetails?.isReadOnly) {
+                  navigate("/dashboard");
+                  return;
+                }
                 const stored = sessionStorage.getItem("coConfiguration");
                 if (stored) {
                   try {
@@ -395,7 +508,7 @@ export default function Student() {
               }}
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
             >
-              ← Back
+              {academicDetails?.isReadOnly ? "Back to Dashboard" : "← Back"}
             </button>
             <button
               type="button"
@@ -428,21 +541,24 @@ export default function Student() {
                 setThresholdPercent={setThresholdPercent}
                 levelCriteria={levelCriteria}
                 setLevelCriteria={setLevelCriteria}
+                isReadOnly={academicDetails?.isReadOnly || assessment?.entry_mode === 'question'}
               />
             </div>
 
             {/* FILE UPLOAD / DOWNLOAD */}
-            <div className="mb-8">
-              <h2 className="mb-4 text-lg font-semibold text-slate-900">Data Import/Export</h2>
-              <FileActions
-                students={students}
-                onUpload={(file) =>
-                  parseExcel(file, coMax, totalMax, setRawStudents, setStatus)
-                }
-                onDownload={downloadReportExcel}
-                results={results}
-              />
-            </div>
+            {!academicDetails?.isReadOnly && assessment?.entry_mode !== 'question' && (
+              <div className="mb-8">
+                <h2 className="mb-4 text-lg font-semibold text-slate-900">Data Import/Export</h2>
+                <FileActions
+                  students={students}
+                  onUpload={(file) =>
+                    parseExcel(file, coMax, totalMax, setRawStudents, setStatus)
+                  }
+                  onDownload={downloadReportExcel}
+                  results={results}
+                />
+              </div>
+            )}
 
             {/* Status Alert */}
             {status && (
@@ -461,21 +577,24 @@ export default function Student() {
                     updateMark={updateMark}
                     onBlurMark={handleMarkBlur}
                     coMax={coMax}
+                    isReadOnly={academicDetails?.isReadOnly || assessment?.entry_mode === 'question'}
                   />
                 </div>
               </div>
             )}
 
             {/* Calculate Button */}
-            <div className="mb-8 flex justify-center">
-              <Button
-                onClick={handleCalculate}
-                disabled={students.length === 0 || isCalculating}
-                className="bg-blue-600 px-8 py-3 text-base font-medium transition hover:bg-blue-700 disabled:opacity-50"
-              >
-                {isCalculating ? 'Calculating Attainment...' : 'Calculate CO Attainment'}
-              </Button>
-            </div>
+            {!academicDetails?.isReadOnly && (
+              <div className="mb-8 flex justify-center">
+                <Button
+                  onClick={handleCalculate}
+                  disabled={students.length === 0 || isCalculating}
+                  className="bg-blue-600 px-8 py-3 text-base font-medium transition hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isCalculating ? 'Calculating Attainment...' : 'Calculate CO Attainment'}
+                </Button>
+              </div>
+            )}
 
             {/* Attainment Results */}
             {results && (
