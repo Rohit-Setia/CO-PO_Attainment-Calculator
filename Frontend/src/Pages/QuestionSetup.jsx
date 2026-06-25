@@ -8,70 +8,113 @@ import FileActions from "@/components/FileActions";
 import QuestionWiseTable from "@/components/QuestionWiseTable";
 import { parseExcel } from "@/utils/excelParser";
 import { useAuth } from "@/context/AuthContext";
+import { fetchStudents, fetchGradingBoard, fetchCOs, saveGradingMarks, triggerDBAttainmentCalculation } from "../Api/erpApi";
 
 export default function QuestionSetup() {
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const [students, setStudents] = useState(() => {
-    const stored = sessionStorage.getItem("setupStudents");
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    return [];
-  });
+  const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState(null);
+  const [academicDetails, setAcademicDetails] = useState(null);
+  const [dbStudents, setDbStudents] = useState([]);
+  const [dbQuestions, setDbQuestions] = useState([]);
+  const [dbMarks, setDbMarks] = useState([]);
+  const [dbCOs, setDbCOs] = useState([]);
+
+  const [students, setStudents] = useState([]);
   
   // Dynamic question configuration state
-  const [numQuestions, setNumQuestions] = useState(() => {
-    const stored = sessionStorage.getItem("coConfiguration");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (parsed.questions) return parsed.questions.length;
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    return 5;
-  });
+  const [numQuestions, setNumQuestions] = useState(5);
+  const [numQuestionsInput, setNumQuestionsInput] = useState("5");
+  const [questions, setQuestions] = useState([]);
 
-  const [numQuestionsInput, setNumQuestionsInput] = useState(() => {
-    const stored = sessionStorage.getItem("coConfiguration");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (parsed.questions) return parsed.questions.length.toString();
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    return "5";
-  });
-
-  const [questions, setQuestions] = useState(() => {
-    const stored = sessionStorage.getItem("coConfiguration");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (parsed.questions) return parsed.questions;
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    return Array.from({ length: 5 }, (_, i) => ({
-      id: i + 1,
-      label: `Q${i + 1}`,
-      co: "co1",
-      maxMarks: 10,
-    }));
-  });
-
-  // Update questions array when numQuestions changes
+  // Load academic details and data from API on component mount
   useEffect(() => {
+    const loadData = async () => {
+      const detailsStr = sessionStorage.getItem("academicDetails");
+      if (!detailsStr) {
+        navigate("/select");
+        return;
+      }
+      const details = JSON.parse(detailsStr);
+      setAcademicDetails(details);
+
+      try {
+        setLoading(true);
+
+        // Load COs first!
+        let cosList = [];
+        if (details.subjectId) {
+          const cosRes = await fetchCOs(details.subjectId);
+          cosList = cosRes.data.data;
+          setDbCOs(cosList);
+        }
+
+        // Load students in classroom
+        const studentsRes = await fetchStudents({ classroom_id: details.classroomId });
+        const studentsList = studentsRes.data.data.map(student => ({
+          id: student.id,
+          serialNo: student.id,
+          roll: student.roll_no,
+          name: student.name,
+          regNo: student.reg_no,
+          questionMarks: {},
+          // Initialize dynamic CO fields based on cosList
+          ...cosList.reduce((acc, _, index) => ({ ...acc, [`co${index + 1}`]: 0 }), {})
+        }));
+        setDbStudents(studentsList);
+
+        // Load grading board (questions and existing marks)
+        const gradingRes = await fetchGradingBoard(details.classroomId, details.assessmentId);
+        const { questions: qList, existingMarks: marksList } = gradingRes.data.data;
+        
+        if (qList && qList.length > 0) {
+          setDbQuestions(qList);
+          setQuestions(qList.map(q => {
+            const coIndex = cosList.findIndex(co => co.id === q.co_id);
+            return {
+              id: q.id,
+              label: `Q${q.question_no}`,
+              co: coIndex !== -1 ? `co${coIndex + 1}` : "co1",
+              maxMarks: q.max_marks,
+              coId: q.co_id
+            };
+          }));
+          setNumQuestions(qList.length);
+          setNumQuestionsInput(qList.length.toString());
+        }
+
+        if (marksList && marksList.length > 0) {
+          setDbMarks(marksList);
+          // Map existing marks to students
+          setStudents(studentsList.map(student => {
+            const studentMarks = marksList.filter(m => m.student_id === student.id);
+            const questionMarks = {};
+            studentMarks.forEach(m => {
+              questionMarks[m.question_id || m.co_id] = m.marks_obtained;
+            });
+            return {
+              ...student,
+              questionMarks
+            };
+          }));
+        } else {
+          setStudents(studentsList);
+        }
+
+      } catch (err) {
+        console.error("Failed to load data", err);
+        setStatus("Failed to load data from server");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, [navigate]);
+
+  // Update questions array when numQuestions changes (only if no DB questions)
+  useEffect(() => {
+    if (dbQuestions.length > 0) return;
     setQuestions((prev) => {
       const current = [...prev];
       if (current.length === numQuestions) return current;
@@ -80,7 +123,7 @@ export default function QuestionSetup() {
         const added = Array.from({ length: numQuestions - current.length }, (_, i) => ({
           id: current.length + i + 1,
           label: `Q${current.length + i + 1}`,
-          co: "co1",
+          co: dbCOs.length > 0 ? `co1` : "co1",
           maxMarks: 10,
         }));
         return [...current, ...added];
@@ -88,7 +131,7 @@ export default function QuestionSetup() {
         return current.slice(0, numQuestions);
       }
     });
-  }, [numQuestions]);
+  }, [numQuestions, dbQuestions.length, dbCOs]);
 
   const calculateStudentPerformance = useCallback(
     (student, currentQuestions) => {
@@ -200,7 +243,7 @@ export default function QuestionSetup() {
     setStudents([...students, newStudent]);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!students.length) {
       alert("Please add at least one student or upload data.");
       return;
@@ -214,55 +257,81 @@ export default function QuestionSetup() {
       }
     }
 
-    const coMax = questions.reduce((acc, q) => {
-      const coKey = String(q.co).toLowerCase();
-      acc[coKey] = (acc[coKey] || 0) + q.maxMarks;
-      return acc;
-    }, { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 });
-
-    const totalMax = questions.reduce((sum, q) => sum + q.maxMarks, 0);
-
-    // Recalculate CO totals for each student to ensure accuracy before saving
-    const finalizedStudents = students.map((student) => {
-      const qMarks = student.questionMarks || {};
-      const coPerformance = { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 };
-      let totalMarks = 0;
-
-      questions.forEach((q) => {
-        const mark = Number(qMarks[q.id]) || 0;
-        const coKey = String(q.co).toLowerCase();
-        if (coPerformance[coKey] !== undefined) {
-          coPerformance[coKey] += mark;
-        }
-        totalMarks += mark;
+    try {
+      // Prepare marks for saving
+      const marksPayload = students.flatMap(student => {
+        return questions.map(q => {
+          const mark = student.questionMarks[q.id] || 0;
+          return {
+            student_id: student.id,
+            question_id: q.id,
+            co_id: q.coId || null,
+            marks_obtained: mark,
+            is_absent: false
+          };
+        });
+      });
+      
+      await saveGradingMarks({
+        assessment_id: academicDetails.assessmentId,
+        marks: marksPayload
       });
 
-      return {
-        ...student,
-        ...coPerformance,
-        totalMarks,
-      };
-    });
+      const coMax = questions.reduce((acc, q) => {
+        const coKey = String(q.co).toLowerCase();
+        acc[coKey] = (acc[coKey] || 0) + q.maxMarks;
+        return acc;
+      }, { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 });
 
-    const config = {
-      questions,
-      coMax,
-      totalMax
-    };
-    
-    sessionStorage.setItem("coConfiguration", JSON.stringify(config));
-    sessionStorage.setItem("setupStudents", JSON.stringify(finalizedStudents));
-    
-    navigate("/student");
+      const totalMax = questions.reduce((sum, q) => sum + q.maxMarks, 0);
+
+      // Recalculate CO totals for each student to ensure accuracy before saving
+      const finalizedStudents = students.map((student) => {
+        const qMarks = student.questionMarks || {};
+        const coPerformance = { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 };
+        let totalMarks = 0;
+
+        questions.forEach((q) => {
+          const mark = Number(qMarks[q.id]) || 0;
+          const coKey = String(q.co).toLowerCase();
+          if (coPerformance[coKey] !== undefined) {
+            coPerformance[coKey] += mark;
+          }
+          totalMarks += mark;
+        });
+
+        return {
+          ...student,
+          ...coPerformance,
+          totalMarks,
+        };
+      });
+
+      const config = {
+        questions,
+        coMax,
+        totalMax
+      };
+      
+      sessionStorage.setItem("coConfiguration", JSON.stringify(config));
+      sessionStorage.setItem("setupStudents", JSON.stringify(finalizedStudents));
+      
+      navigate("/student");
+    } catch (err) {
+      console.error(err);
+      setStatus("Failed to save marks: " + (err.response?.data?.message || err.message));
+    }
   };
 
-  const academicDetails = JSON.parse(sessionStorage.getItem("academicDetails"));
-  useEffect(() => {
-    if (!academicDetails) {
-      navigate("/select");
-    }
-  }, [academicDetails, navigate]);
-
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="text-lg font-semibold text-slate-600">Loading data...</div>
+        </div>
+      </div>
+    );
+  }
   if (!academicDetails) return null;
 
   return (
@@ -275,19 +344,19 @@ export default function QuestionSetup() {
               {academicDetails && (
                 <>
                   <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
-                    {academicDetails.school}
+                    {academicDetails.departmentName}
                   </span>
                   <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">
-                    {academicDetails.department}
+                    {academicDetails.programName}
                   </span>
                   <span className="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-700/10">
-                    {academicDetails.subject}
+                    {academicDetails.subjectName}
                   </span>
                   <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-700/10">
-                    Sem: {academicDetails.semester}
+                    Sem: {academicDetails.semesterNumber}
                   </span>
                   <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-700/10">
-                    {academicDetails.examType}
+                    {academicDetails.assessmentName}
                   </span>
                 </>
               )}
@@ -305,14 +374,16 @@ export default function QuestionSetup() {
               <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Question Selection</label>
               <div className="flex items-center gap-3">
                 <Input
-                  type="number"
+                  type="text"
                   value={numQuestionsInput}
                   onChange={(e) => {
                     const valStr = e.target.value;
-                    setNumQuestionsInput(valStr);
-                    const val = parseInt(valStr);
-                    if (!isNaN(val) && val >= 5 && val <= 30) {
-                      setNumQuestions(val);
+                    if (/^\d*$/.test(valStr)) {
+                      setNumQuestionsInput(valStr);
+                      const val = parseInt(valStr);
+                      if (!isNaN(val) && val >= 5 && val <= 30) {
+                        setNumQuestions(val);
+                      }
                     }
                   }}
                   onBlur={() => {
@@ -325,7 +396,7 @@ export default function QuestionSetup() {
                     setNumQuestions(val);
                     setNumQuestionsInput(val.toString());
                   }}
-                  className="w-24 font-bold text-blue-600"
+                  className="w-24 font-bold text-blue-600 text-center"
                 />
                 <span className="text-sm text-slate-600 font-medium">(5-30)</span>
               </div>

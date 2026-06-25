@@ -37,12 +37,21 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                   <div className="flex items-center gap-2 w-full">
                     <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">Max Marks:</span>
                     <input
-                      type="number"
-                      min="1"
+                      type="text"
                       value={q.maxMarks !== undefined && q.maxMarks !== null ? q.maxMarks : ""}
                       onChange={(e) => {
                         const val = e.target.value;
-                        updateQuestionConfig(i, "maxMarks", val === "" ? "" : (parseInt(val) || 0));
+                        if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                          updateQuestionConfig(i, "maxMarks", val);
+                        }
+                      }}
+                      onBlur={() => {
+                        const val = q.maxMarks;
+                        let parsed = parseFloat(val);
+                        if (val === "" || isNaN(parsed) || parsed <= 0) {
+                          parsed = 10;
+                        }
+                        updateQuestionConfig(i, "maxMarks", parsed);
                       }}
                       className="w-full rounded border border-slate-300 bg-white px-1.5 py-1 text-center text-xs focus:border-blue-500 focus:outline-none font-bold"
                     />
@@ -84,25 +93,39 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                 {student.totalMarks}
               </td>
 
-              {questions.map((q) => (
-                <td key={q.id} className="px-2 py-3 text-center border-r border-slate-200 w-[160px] min-w-[160px]">
-                  <Input
-                    type="number"
-                    min="0"
-                    max={q.maxMarks}
-                    value={student.questionMarks?.[q.id] !== undefined && student.questionMarks?.[q.id] !== null ? student.questionMarks[q.id] : ""}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      updateMark(i, q.id, val === "" ? "" : (parseInt(val) || 0));
-                    }}
-                    className={`mx-auto h-9 w-20 text-center font-medium focus:ring-2 focus:ring-blue-500 ${
-                      (student.questionMarks?.[q.id] ?? 0) > q.maxMarks ? "border-red-500 text-red-600 bg-red-50" : "bg-white border-slate-200"
-                    } ${
-                        (student.questionMarks?.[q.id] ?? 0) < 0 ? "border-red-500 text-red-600 bg-red-50" : ""
-                    }`}
-                  />
-                </td>
-              ))}
+              {questions.map((q) => {
+                const markValue = student.questionMarks?.[q.id] !== undefined && student.questionMarks?.[q.id] !== null ? student.questionMarks[q.id] : "";
+                return (
+                  <td key={q.id} className="px-2 py-3 text-center border-r border-slate-200 w-[160px] min-w-[160px]">
+                    <Input
+                      type="text"
+                      value={markValue}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                          updateMark(i, q.id, val);
+                        }
+                      }}
+                      onBlur={() => {
+                        const val = student.questionMarks?.[q.id];
+                        if (val === undefined || val === "" || isNaN(parseFloat(val))) {
+                          updateMark(i, q.id, 0);
+                        } else {
+                          let parsed = parseFloat(val);
+                          if (parsed < 0) parsed = 0;
+                          if (parsed > q.maxMarks) parsed = q.maxMarks;
+                          updateMark(i, q.id, parsed);
+                        }
+                      }}
+                      className={`mx-auto h-9 w-20 text-center font-semibold focus:ring-2 focus:ring-blue-500 ${
+                        (Number(student.questionMarks?.[q.id]) || 0) > q.maxMarks ? "border-red-500 text-red-600 bg-red-50" : "bg-white border-slate-200"
+                      } ${
+                          (Number(student.questionMarks?.[q.id]) || 0) < 0 ? "border-red-500 text-red-600 bg-red-50" : ""
+                      }`}
+                    />
+                  </td>
+                );
+              })}
               <td className="px-4 py-3 text-center min-w-[120px]">
                 <Button
                   variant="outline"

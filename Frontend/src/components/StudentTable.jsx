@@ -2,7 +2,7 @@ import React from "react";
 import { Input } from "@/components/ui/input";
 import { COS, calcCoPercent } from "@/utils/calculations";
 
-export default function StudentTable({ students, updateMark, coMax }) {
+export default function StudentTable({ students, updateMark, onBlurMark, coMax }) {
   return (
     <div className="overflow-x-auto border border-gray-300 rounded-md overflow-hidden">
       <table className="w-full text-sm [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2">
@@ -33,10 +33,11 @@ export default function StudentTable({ students, updateMark, coMax }) {
               {COS.map((co) => (
                 <td key={co}>
                   <Input
-                    type="number"
+                    type="text"
                     value={s[co] !== undefined && s[co] !== null ? s[co] : ""}
                     onChange={(e) => updateMark(i, co, e.target.value)}
-                    className="w-20"
+                    onBlur={() => onBlurMark && onBlurMark(i, co)}
+                    className="w-20 font-semibold text-center"
                   />
                 </td>
               ))}

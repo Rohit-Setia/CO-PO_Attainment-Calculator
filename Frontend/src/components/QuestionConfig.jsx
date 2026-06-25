@@ -6,6 +6,7 @@ import { COS } from "@/utils/calculations";
 
 export default function QuestionConfig({ onConfigChange }) {
   const [numQuestions, setNumQuestions] = useState(15);
+  const [numQuestionsInput, setNumQuestionsInput] = useState("15");
   const [questions, setQuestions] = useState([]);
 
   // Initialize questions when numQuestions changes
@@ -28,6 +29,11 @@ export default function QuestionConfig({ onConfigChange }) {
     });
   }, [numQuestions]);
 
+  // Sync input text when numQuestions changes
+  useEffect(() => {
+    setNumQuestionsInput(numQuestions.toString());
+  }, [numQuestions]);
+
   // Notify parent of changes
   useEffect(() => {
     onConfigChange(questions);
@@ -41,21 +47,53 @@ export default function QuestionConfig({ onConfigChange }) {
     });
   };
 
+  const handleNumQuestionsChange = (value) => {
+    if (/^\d*$/.test(value)) {
+      setNumQuestionsInput(value);
+      const parsed = parseInt(value);
+      if (!isNaN(parsed) && parsed >= 15 && parsed <= 30) {
+        setNumQuestions(parsed);
+      }
+    }
+  };
+
+  const handleNumQuestionsBlur = () => {
+    let parsed = parseInt(numQuestionsInput);
+    if (isNaN(parsed) || parsed < 15) {
+      parsed = 15;
+    } else if (parsed > 30) {
+      parsed = 30;
+    }
+    setNumQuestions(parsed);
+    setNumQuestionsInput(parsed.toString());
+  };
+
+  const handleMaxMarksChange = (index, value) => {
+    if (value === "" || /^\d*\.?\d*$/.test(value)) {
+      updateQuestion(index, "maxMarks", value);
+    }
+  };
+
+  const handleMaxMarksBlur = (index) => {
+    const val = questions[index].maxMarks;
+    let parsed = parseFloat(val);
+    if (val === "" || isNaN(parsed) || parsed <= 0) {
+      parsed = 10;
+    }
+    updateQuestion(index, "maxMarks", parsed);
+  };
+
   return (
     <Card className="mb-8">
       <CardContent className="p-6">
         <div className="mb-6 flex items-center gap-4">
           <label className="text-sm font-medium text-slate-700">Number of Questions (15-30):</label>
           <Input
-            type="number"
-            min="15"
-            max="30"
-            value={numQuestions}
-            onChange={(e) => {
-              const val = parseInt(e.target.value);
-              if (!isNaN(val)) setNumQuestions(Math.min(30, Math.max(15, val)));
-            }}
-            className="w-24"
+            type="text"
+            value={numQuestionsInput}
+            onChange={(e) => handleNumQuestionsChange(e.target.value)}
+            onBlur={handleNumQuestionsBlur}
+            className="w-24 font-bold"
           />
         </div>
 
@@ -87,11 +125,11 @@ export default function QuestionConfig({ onConfigChange }) {
                   </td>
                   <td className="border p-2">
                     <Input
-                      type="number"
-                      min="1"
-                      value={q.maxMarks}
-                      onChange={(e) => updateQuestion(i, "maxMarks", parseInt(e.target.value) || 0)}
-                      className="h-8 w-20"
+                      type="text"
+                      value={q.maxMarks !== undefined && q.maxMarks !== null ? q.maxMarks : ""}
+                      onChange={(e) => handleMaxMarksChange(i, e.target.value)}
+                      onBlur={() => handleMaxMarksBlur(i)}
+                      className="h-8 w-20 font-bold"
                     />
                   </td>
                 </tr>

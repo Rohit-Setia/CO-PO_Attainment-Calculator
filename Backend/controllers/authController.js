@@ -4,14 +4,18 @@ const generateToken = require('../utils/generateToken');
 
 const registerTeacher = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    let { name, email, password } = req.body;
+
+    // Normalize inputs
+    name = name ? String(name).trim() : '';
+    email = email ? String(email).trim().toLowerCase() : '';
 
     const existingUser = await findUserByEmail(email);
     if (existingUser) {
       return res.status(409).json({ success: false, message: 'Email already registered.' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT_ROUNDS) || 10);
     const userId = await createUser({ name, email, hashedPassword });
 
     const token = generateToken({ id: userId, email });
@@ -35,7 +39,8 @@ const registerTeacher = async (req, res, next) => {
 
 const loginTeacher = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
+    email = email ? String(email).trim().toLowerCase() : '';
 
     const user = await findUserByEmail(email);
     if (!user) {
