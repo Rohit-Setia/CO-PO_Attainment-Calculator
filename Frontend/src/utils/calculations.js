@@ -1,4 +1,4 @@
-export const COS = ["co1", "co2", "co3", "co4", "co5"]
+export const COS = ["co1", "co2", "co3", "co4", "co5", "co6"]
 
 export const calcOverallPercent = (student, coMax) => {
   let obtained = 0

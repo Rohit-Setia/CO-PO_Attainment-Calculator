@@ -4,8 +4,13 @@ const cors = require('cors');
 const calculate = require('./routes/calculate');
 const excelRouter = require('./routes/excelExport');
 const authRouter = require('./routes/authRoutes');
+const courseRouter = require('./routes/courseRoutes');
 const errorHandler = require('./middlewares/errorMiddleware');
+
 const { createUsersTable } = require('./models/userModel');
+const { createCoursesTable } = require('./models/courseModel');
+const { createMappingTables } = require('./models/mappingModel');
+const { createMarksTable } = require('./models/marksModel');
 
 const app = express();
 
@@ -23,12 +28,17 @@ app.get('/', (req, res) => {
 app.use('/api', calculate);
 app.use('/api', excelRouter);
 app.use('/api', authRouter);
+app.use('/api', courseRouter);
 
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
+// Sequential initialization of tables
 createUsersTable()
+  .then(() => createCoursesTable())
+  .then(() => createMappingTables())
+  .then(() => createMarksTable())
   .then(() => {
     app.listen(PORT, () => console.log('Server running on', PORT));
   })

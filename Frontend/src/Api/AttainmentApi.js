@@ -1,38 +1,27 @@
-import axios from 'axios'
+import axiosClient from './axiosClient';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
+// Courses CRUD
+export const fetchCourses = () => axiosClient.get('/courses');
+export const createCourse = (payload) => axiosClient.post('/courses', payload);
+export const deleteCourse = (id) => axiosClient.delete(`/courses/${id}`);
 
-export const calculateAttainment = async (students, coMax, thresholdPercent,levelCriteria,) => {
-  const data = {
-    students: students.map(s => ({
-      regNo: s.roll,
-      name: s.name,
-      co1: s.co1, co2: s.co2, co3: s.co3, co4: s.co4, co5: s.co5
-    })),
-    coMaxMarks: {
-      CO1: coMax.co1, CO2: coMax.co2, CO3: coMax.co3, 
-      CO4: coMax.co4, CO5: coMax.co5
-    },
-    thresholdPercent,
-    levelCriteria 
-  }
-  
-  return axios.post(`${API_BASE}/calculate`, data)
-}
+// Configurations & CO Descriptions
+export const fetchCourseConfig = (id) => axiosClient.get(`/courses/${id}/config`);
+export const saveCourseConfig = (id, payload) => axiosClient.post(`/courses/${id}/config`, payload);
 
-export const downloadExcel = async (students, coMax, results,levelCriteria, thresholdPercent, courseInfo = {}) => {
-    const res = await axios.post(`${API_BASE}/export-excel`, {
-      students: students.map(s => ({
-        regNo: s.roll, name: s.name,
-        CO1: s.co1, CO2: s.co2, CO3: s.co3, CO4: s.co4, CO5: s.co5
-      })),
-      coMaxMarks: {
-        CO1: coMax.co1, CO2: coMax.co2, CO3: coMax.co3, 
-        CO4: coMax.co4, CO5: coMax.co5
-      },
-      results,levelCriteria, thresholdPercent,
-      courseInfo
-    }, { responseType: 'blob' });
-    
-    return res.data
-  }
+// Mappings Matrix
+export const fetchCourseMapping = (id) => axiosClient.get(`/courses/${id}/mapping`);
+export const saveCourseMapping = (id, payload) => axiosClient.post(`/courses/${id}/mapping`, payload);
+
+// Student Marks Upload & Retrieval
+export const fetchCourseMarks = (id) => axiosClient.get(`/courses/${id}/marks`);
+export const saveCourseMarks = (id, payload) => axiosClient.post(`/courses/${id}/marks`, payload);
+
+// Attainment Calculations
+export const fetchCourseAttainment = (id) => axiosClient.get(`/courses/${id}/attainment`);
+
+// Download Excel File
+export const downloadCourseExcel = async (id) => {
+  const res = await axiosClient.get(`/courses/${id}/export-excel`, { responseType: 'blob' });
+  return res.data;
+};

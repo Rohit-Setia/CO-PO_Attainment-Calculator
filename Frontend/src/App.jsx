@@ -5,9 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import DashboardPage from './Pages/DashboardPage';
 import LoginPage from './Pages/LoginPage';
 import SignupPage from './Pages/SignupPage';
-import Student from './Pages/student';
-import SelectionPage from './Pages/SelectDetails';
-import QuestionSetup from './Pages/QuestionSetup';
+import CourseWorkspace from './Pages/CourseWorkspace';
 
 const AppRoutes = () => {
   const { isAuthenticated } = useAuth();
@@ -18,22 +16,6 @@ const AppRoutes = () => {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route
-        path="/select"
-        element={
-          <ProtectedRoute>
-            <SelectionPage />
-          </ProtectedRoute>
-        }
-        />
-      <Route
-        path="/setup-questions"
-        element={
-          <ProtectedRoute>
-            <QuestionSetup />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/dashboard"
         element={
           <ProtectedRoute>
@@ -42,10 +24,10 @@ const AppRoutes = () => {
         }
       />
       <Route
-        path="/student"
+        path="/courses/:id"
         element={
           <ProtectedRoute>
-            <Student />
+            <CourseWorkspace />
           </ProtectedRoute>
         }
       />
