@@ -25,3 +25,7 @@ export const downloadCourseExcel = async (id) => {
   const res = await axiosClient.get(`/courses/${id}/export-excel`, { responseType: 'blob' });
   return res.data;
 };
+
+// Course JSON Snapshot Export / Import
+export const exportCourseJson  = (id)         => axiosClient.get(`/courses/${id}/export-json`);
+export const importCourseJson  = (courseData) => axiosClient.post('/courses/import-json', { courseData });

@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchCourses, createCourse, deleteCourse } from '../Api/AttainmentApi';
+import { fetchCourses, createCourse, deleteCourse, importCourseJson } from '../Api/AttainmentApi';
 import { useAuth } from '../context/AuthContext';
 import { 
-  BookOpen, Plus, Award, LogOut, Loader2, RefreshCw
+  BookOpen, Plus, Award, LogOut, Loader2, RefreshCw, Upload, CheckCircle2, X
 } from 'lucide-react';
 
 import CourseCard from '../components/dashboard/CourseCard';
@@ -21,11 +21,18 @@ const academicStructure = {
 const DashboardPage = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const [courses, setCourses] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [courses, setCourses]       = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState('');
+  const [showModal, setShowModal]   = useState(false);
+  const [creating, setCreating]     = useState(false);
+
+  // Import Course state
+  const importInputRef              = useRef(null);
+  const [importData, setImportData] = useState(null);   // parsed snapshot
+  const [importing, setImporting]   = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importSuccess, setImportSuccess] = useState('');
 
   const [formData, setFormData] = useState({
     school: '',
@@ -109,6 +116,54 @@ const DashboardPage = () => {
     }
   };
 
+  // --- Import Course JSON handlers ---
+  const handleImportFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    // Reset the input so the same file can be re-selected if needed
+    if (importInputRef.current) importInputRef.current.value = '';
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        if (!parsed.exportVersion || !parsed.course) {
+          setImportError('Invalid file: this does not appear to be a CO-PO course snapshot.');
+          return;
+        }
+        setImportData(parsed);
+        setImportError('');
+        setImportSuccess('');
+      } catch {
+        setImportError('Could not parse the file. Make sure it is a valid .json snapshot.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importData) return;
+    setImporting(true);
+    setImportError('');
+    try {
+      const res = await importCourseJson(importData);
+      const newId = res.data.data.id;
+      setImportSuccess(`"${importData.course.subject_name}" imported! Opening workspace...`);
+      await loadCourses();
+      setTimeout(() => navigate(`/courses/${newId}`), 1200);
+    } catch (err) {
+      setImportError(err.response?.data?.message || 'Failed to import course.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const cancelImport = () => {
+    setImportData(null);
+    setImportError('');
+    setImportSuccess('');
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white font-sans antialiased">
       {/* Navbar */}
@@ -147,14 +202,92 @@ const DashboardPage = () => {
             <h2 className="text-3xl font-extrabold tracking-tight">Teacher Workspace</h2>
             <p className="text-slate-300 max-w-lg">Manage course details, articulation mapping matrices, student marks, and generate NBA-compliant reports with live Excel formulas.</p>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold shadow-lg shadow-indigo-600/25 transition duration-300 transform hover:-translate-y-0.5"
-          >
-            <Plus className="h-5 w-5" />
-            Create Course
-          </button>
+          <div className="flex flex-wrap gap-3 justify-center sm:justify-end">
+            {/* Import Course */}
+            <label
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-600 bg-slate-800/60 hover:bg-slate-700/60 text-slate-200 font-semibold cursor-pointer transition duration-200"
+              title="Import a course from another teacher's JSON snapshot"
+            >
+              <Upload className="h-4 w-4" /> Import Course
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleImportFile}
+                className="hidden"
+              />
+            </label>
+            {/* Create Course */}
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold shadow-lg shadow-indigo-600/25 transition duration-300 transform hover:-translate-y-0.5"
+            >
+              <Plus className="h-5 w-5" />
+              Create Course
+            </button>
+          </div>
         </div>
+
+        {/* Import Preview Card */}
+        {(importData || importError || importSuccess) && (
+          <div className={`mb-6 rounded-2xl border p-5 transition-all ${
+            importSuccess
+              ? 'border-emerald-500/40 bg-emerald-500/5'
+              : importError
+                ? 'border-red-500/40 bg-red-500/5'
+                : 'border-blue-500/30 bg-blue-500/5'
+          }`}>
+            {importSuccess ? (
+              <div className="flex items-center gap-3 text-emerald-300">
+                <CheckCircle2 className="h-5 w-5 shrink-0" />
+                <p className="text-sm font-medium">{importSuccess}</p>
+              </div>
+            ) : importError ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-red-300">{importError}</p>
+                <button onClick={cancelImport} className="p-1 text-slate-400 hover:text-white transition">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : importData ? (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <p className="text-xs text-blue-400 font-semibold uppercase tracking-wider">Import Preview</p>
+                  <p className="text-lg font-bold text-slate-100">
+                    {importData.course.subject_name}
+                    <span className="ml-2 text-[11px] font-bold text-blue-400 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
+                      {importData.course.course_code}
+                    </span>
+                  </p>
+                  <p className="text-slate-400 text-sm">
+                    {importData.course.school} · {importData.course.department} · Sem {importData.course.semester} · {importData.course.num_cos} COs
+                  </p>
+                  <p className="text-slate-500 text-xs">
+                    Exported by <span className="text-slate-400">{importData.exportedBy}</span> on {new Date(importData.exportedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {' · '}
+                    {(importData.marks?.mtt?.length || 0)} MTT · {(importData.marks?.ett?.length || 0)} ETT students
+                  </p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={cancelImport}
+                    className="px-4 py-2 rounded-xl border border-slate-700 text-slate-400 hover:text-white text-sm transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmImport}
+                    disabled={importing}
+                    className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-bold transition"
+                  >
+                    {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {importing ? 'Importing...' : 'Confirm Import'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
 
         {/* Courses Section */}
         <div className="space-y-6">

@@ -202,6 +202,7 @@ export const parseExcel = (
             co3: 0,
             co4: 0,
             co5: 0,
+            co6: 0,
           }
 
           const hasQCols = Object.keys(qCols).length > 0

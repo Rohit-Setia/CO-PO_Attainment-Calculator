@@ -4,11 +4,12 @@ import {
   fetchCourseConfig, saveCourseConfig, 
   fetchCourseMapping, saveCourseMapping,
   fetchCourseMarks, saveCourseMarks,
-  fetchCourseAttainment, downloadCourseExcel
+  fetchCourseAttainment, downloadCourseExcel,
+  exportCourseJson
 } from '../Api/AttainmentApi';
 import { 
   ArrowLeft, Sliders, Grid, Users, TrendingUp, Download, 
-  Loader2, CheckCircle2, ShieldAlert
+  Loader2, CheckCircle2, ShieldAlert, Share2
 } from 'lucide-react';
 import { parseExcel } from '../utils/excelParser';
 
@@ -73,38 +74,67 @@ export default function CourseWorkspace() {
     loadAllData();
   }, [id]);
 
-  // Sync questions config when component or config changes
+  // Sync questions config when exam type or config changes
   useEffect(() => {
     if (!config) return;
     const key = activeExamType === 'MTT' ? 'questions_config_internal' : 'questions_config_external';
-    const defaultQs = activeExamType === 'MTT'
-      ? Array.from({ length: 5 }, (_, i) => ({ id: i + 1, label: `Q${i + 1}`, co: 'co1', maxMarks: 10 }))
-      : Array.from({ length: 1 }, (_, i) => ({ id: i + 1, label: `Q${i + 1}`, co: 'co1', maxMarks: 100 }));
+    // Uniform default: 5 questions, maxMarks 10 each — same for both MTT and ETT
+    const defaultQs = Array.from({ length: 5 }, (_, i) => ({
+      id: i + 1, label: `Q${i + 1}`, co: 'co1', maxMarks: 10
+    }));
 
     if (config[key]) {
       try {
-        const parsed = JSON.parse(config[key]);
-        setQuestions(parsed);
-        setNumQuestionsInput(parsed.length.toString());
+        const raw = config[key];
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setQuestions(parsed);
+          setNumQuestionsInput(parsed.length.toString());
+        } else {
+          setQuestions(defaultQs);
+          setNumQuestionsInput('5');
+        }
       } catch (e) {
         setQuestions(defaultQs);
-        setNumQuestionsInput(defaultQs.length.toString());
+        setNumQuestionsInput('5');
       }
     } else {
       setQuestions(defaultQs);
-      setNumQuestionsInput(defaultQs.length.toString());
+      setNumQuestionsInput('5');
     }
   }, [activeExamType, config]);
 
-  // Sync students list when component or marks state changes
+  // Sync students list when exam type or marks change; auto-populate names from other exam if target is empty
   useEffect(() => {
-    setStudents(activeExamType === 'MTT' ? marks.mtt : marks.ett);
-    
-    // Automatically detect entry mode based on whether students have questionMarks
     const currentList = activeExamType === 'MTT' ? marks.mtt : marks.ett;
+    const otherList  = activeExamType === 'MTT' ? marks.ett : marks.mtt;
+
+    if (currentList.length === 0 && otherList.length > 0 && course) {
+      // Pre-populate reg numbers & names from the other exam type (zero marks)
+      const prePopulated = otherList.map(s => {
+        const empty = {
+          name: s.name || '',
+          roll: s.roll || s.reg_no || '',
+          reg_no: s.reg_no || s.roll || '',
+          total_marks: 0,
+          totalMarks: 0,
+          questionMarks: {},
+        };
+        for (let co = 1; co <= course.num_cos; co++) {
+          empty[`co${co}`] = 0;
+        }
+        return empty;
+      });
+      setStudents(prePopulated);
+      setStatus(`ℹ️ ${prePopulated.length} student names pre-filled from ${activeExamType === 'MTT' ? 'ETT' : 'MTT'} — enter marks to continue.`);
+    } else {
+      setStudents(currentList);
+    }
+
+    // Auto-detect entry mode from saved data
     const hasQMarks = currentList.length > 0 && currentList.some(s => s.questionMarks && Object.keys(s.questionMarks).length > 0);
     setEntryMode(hasQMarks ? 'question' : 'co');
-  }, [activeExamType, marks]);
+  }, [activeExamType, marks, course]);
 
   const triggerAttainmentCalculation = async () => {
     try {
@@ -207,6 +237,7 @@ export default function CourseWorkspace() {
 
         Object.assign(s, coPerformance);
         s.total_marks = total;
+        s.totalMarks = total;  // keep alias in sync
         s.questionMarks = qMarks;
       } else {
         s[field] = value === '' ? '' : parseFloat(value) || 0;
@@ -215,6 +246,7 @@ export default function CourseWorkspace() {
           total += parseFloat(s[`co${co}`]) || 0;
         }
         s.total_marks = total;
+        s.totalMarks = total;  // keep alias in sync
       }
       
       updated[index] = s;
@@ -246,7 +278,9 @@ export default function CourseWorkspace() {
     const newStudent = {
       name: '',
       roll: '',
+      reg_no: '',
       total_marks: 0,
+      totalMarks: 0,
       questionMarks: {},
     };
     for (let co = 1; co <= course.num_cos; co++) {
@@ -260,19 +294,45 @@ export default function CourseWorkspace() {
     setSaving(true);
     setStatus('');
     try {
-      await saveCourseMarks(id, {
-        examType: activeExamType,
-        students: students
-      });
+      await saveCourseMarks(id, { examType: activeExamType, students });
 
-      const key = activeExamType === 'MTT' ? 'questions_config_internal' : 'questions_config_external';
-      const updatedConfig = { ...config, [key]: questions };
-      await saveCourseConfig(id, { config: updatedConfig });
-      setConfig(updatedConfig);
+      // Build config update — always save questions config
+      const qKey = activeExamType === 'MTT' ? 'questions_config_internal' : 'questions_config_external';
+      let configToSave = { ...config, [qKey]: questions };
 
-      setStatus(`Successfully saved student marks and questions configuration for ${activeExamType}`);
-      
-      // Update local marks list in state
+      // FIX #3 & #4: If question-wise mode, auto-compute CO max marks from question configs.
+      // This ensures co_max_internal/external matches actual sum per CO so attainment is correct.
+      if (entryMode === 'question' && questions.length > 0) {
+        const maxKey = activeExamType === 'MTT' ? 'internal' : 'external';
+        const coMaxPerCo = {};
+        let totalMax = 0;
+        for (let co = 1; co <= course.num_cos; co++) coMaxPerCo[co] = 0;
+
+        questions.forEach(q => {
+          const coNum = parseInt(String(q.co).replace('co', ''));
+          if (coNum >= 1 && coNum <= course.num_cos) {
+            coMaxPerCo[coNum] += parseFloat(q.maxMarks) || 0;
+            totalMax += parseFloat(q.maxMarks) || 0;
+          }
+        });
+
+        for (let co = 1; co <= course.num_cos; co++) {
+          if (coMaxPerCo[co] > 0) {
+            configToSave[`co${co}_max_${maxKey}`] = coMaxPerCo[co];
+          }
+        }
+        if (totalMax > 0) {
+          configToSave[`total_max_${maxKey}`] = totalMax;
+        }
+      }
+
+      await saveCourseConfig(id, { config: configToSave });
+      setConfig(configToSave);
+
+      const coMaxNote = entryMode === 'question' ? ' · CO max marks auto-synced from question config.' : '';
+      setStatus(`✅ Saved ${activeExamType} marks successfully.${coMaxNote}`);
+
+      // Update local marks cache
       setMarks(prev => ({
         ...prev,
         [activeExamType === 'MTT' ? 'mtt' : 'ett']: students
@@ -281,7 +341,7 @@ export default function CourseWorkspace() {
       await triggerAttainmentCalculation();
     } catch (err) {
       console.error(err);
-      setStatus('Failed to save student marks.');
+      setStatus('❌ Failed to save student marks.');
     } finally {
       setSaving(false);
     }
@@ -291,23 +351,30 @@ export default function CourseWorkspace() {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Use exam-type-aware CO max marks for the parser
+    const isInternal = activeExamType === 'MTT';
+    const coMaxForExam = {};
+    for (let co = 1; co <= (course?.num_cos || 6); co++) {
+      coMaxForExam[`co${co}`] = config
+        ? (isInternal ? config[`co${co}_max_internal`] : config[`co${co}_max_external`])
+        : 10;
+    }
+    const totalMaxForExam = config
+      ? (isInternal ? config.total_max_internal : config.total_max_external)
+      : (isInternal ? 60 : 100);
+
     parseExcel(
       file,
-      {
-        co1: config ? config.co1_max_internal : 10,
-        co2: config ? config.co2_max_internal : 10,
-        co3: config ? config.co3_max_internal : 10,
-        co4: config ? config.co4_max_internal : 15,
-        co5: config ? config.co5_max_internal : 15,
-        co6: config ? config.co6_max_internal : 10,
-      },
-      config ? config.total_max_internal : 60,
+      coMaxForExam,
+      totalMaxForExam,
       (parsedStudents) => {
         const mapped = parsedStudents.map(s => {
           const m = {
             name: s.name,
             roll: s.roll,
+            reg_no: s.roll,
             total_marks: s.totalMarks || 0,
+            totalMarks: s.totalMarks || 0,
             questionMarks: s.questionMarks || {}
           };
           for (let co = 1; co <= course.num_cos; co++) {
@@ -316,11 +383,54 @@ export default function CourseWorkspace() {
           return m;
         });
         setStudents(mapped);
-        setStatus(`✅ Loaded ${mapped.length} students from spreadsheet.`);
+
+        // FIX #1: Auto-detect question count from parsed Excel when in question-wise mode
+        if (entryMode === 'question' && mapped.length > 0) {
+          const firstQMarks = mapped[0].questionMarks || {};
+          const detectedIds = Object.keys(firstQMarks)
+            .map(Number)
+            .filter(n => !isNaN(n) && n > 0)
+            .sort((a, b) => a - b);
+
+          if (detectedIds.length > 0) {
+            const maxQId = Math.max(...detectedIds);
+            setNumQuestionsInput(String(maxQId));
+            setQuestions(prev =>
+              Array.from({ length: maxQId }, (_, i) => {
+                const existingQ = prev.find(q => q.id === i + 1);
+                return existingQ || { id: i + 1, label: `Q${i + 1}`, co: 'co1', maxMarks: 10 };
+              })
+            );
+          }
+        }
+
+        setStatus(`✅ Loaded ${mapped.length} students from Excel.`);
       },
       (msg) => setStatus(msg),
       entryMode === 'question' ? questions : null
     );
+  };
+
+  const handleExportJson = async () => {
+    try {
+      const res = await exportCourseJson(id);
+      const snapshot = res.data.data;
+      const safeName = (course.subject_name || 'course').replace(/\s+/g, '_');
+      const filename  = `${safeName}_${course.course_code}_CO-PO-Snapshot.json`;
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus('✅ Course snapshot exported. Share the .json file with another teacher to let them import it.');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to export course data.');
+    }
   };
 
   const handleExportExcel = async () => {
@@ -388,6 +498,17 @@ export default function CourseWorkspace() {
     );
   }
 
+  // Compute coMax dynamically — uses internal or external max based on active exam type
+  const coMax = {};
+  if (config) {
+    const isInternal = activeExamType === 'MTT';
+    for (let co = 1; co <= course.num_cos; co++) {
+      coMax[`co${co}`] = isInternal
+        ? (parseFloat(config[`co${co}_max_internal`]) || 10)
+        : (parseFloat(config[`co${co}_max_external`]) || 10);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white font-sans antialiased">
       {/* Top Banner Header */}
@@ -412,6 +533,13 @@ export default function CourseWorkspace() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportJson}
+            title="Export all course data (configs, mapping, marks) as a JSON file to share with another teacher"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-800/40 hover:bg-slate-700/60 text-slate-300 text-sm font-medium transition duration-200"
+          >
+            <Share2 className="h-4 w-4" /> Export Course
+          </button>
           <button
             onClick={handleExportExcel}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-semibold shadow-lg shadow-emerald-600/25 transition duration-300 transform hover:-translate-y-0.5"
@@ -497,6 +625,8 @@ export default function CourseWorkspace() {
           {activeTab === 'marks' && (
             <MarksTab
               course={course}
+              coMax={coMax}
+              numCos={course.num_cos}
               students={students}
               setStudents={setStudents}
               activeExamType={activeExamType}

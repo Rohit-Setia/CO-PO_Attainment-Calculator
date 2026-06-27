@@ -10,6 +10,16 @@ export default function ConfigTab({
   handleCoDescChange,
   saveConfigAndCos
 }) {
+  // Guard: config not yet loaded from server
+  if (!config || !course) {
+    return (
+      <div className="flex items-center justify-center py-20 text-slate-500 gap-2">
+        <Loader2 className="h-6 w-6 animate-spin text-blue-400" />
+        <span className="text-sm">Loading configuration...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-6 md:grid-cols-3">
       {/* Target & Weights */}
@@ -179,7 +189,7 @@ export default function ConfigTab({
               <div key={i} className="p-3 border border-slate-700/50 rounded-xl bg-slate-900/20 text-center space-y-2">
                 <p className="text-xs font-bold text-blue-400">CO{i + 1}</p>
                 <div>
-                  <label className="block text-[9px] text-slate-500">Max Int</label>
+                  <label className="block text-[9px] text-slate-500">Max for Int</label>
                   <input
                     type="number"
                     value={config[`co${i + 1}_max_internal`] ?? 10}
@@ -193,10 +203,10 @@ export default function ConfigTab({
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] text-slate-500">Max Ext</label>
+                  <label className="block text-[9px] text-slate-500">Max for Ext</label>
                   <input
                     type="number"
-                    value={config[`co${i + 1}_max_external`] ?? 100}
+                    value={config[`co${i + 1}_max_external`] ?? 20}
                     onChange={(e) => handleConfigChange({
                       target: {
                         name: `co${i + 1}_max_external`,
