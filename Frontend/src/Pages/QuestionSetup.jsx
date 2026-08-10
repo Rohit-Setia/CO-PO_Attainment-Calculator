@@ -26,19 +26,6 @@ export default function QuestionSetup() {
   const [status, setStatus] = useState(null);
   
   // Dynamic question configuration state
-  const [numQuestions, setNumQuestions] = useState(() => {
-    const stored = sessionStorage.getItem("coConfiguration");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (parsed.questions) return parsed.questions.length;
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    return 5;
-  });
-
   const [numQuestionsInput, setNumQuestionsInput] = useState(() => {
     const stored = sessionStorage.getItem("coConfiguration");
     if (stored) {
@@ -66,29 +53,9 @@ export default function QuestionSetup() {
       id: i + 1,
       label: `Q${i + 1}`,
       co: "co1",
-      maxMarks: 10,
+      maxMarks: 0,
     }));
   });
-
-  // Update questions array when numQuestions changes
-  useEffect(() => {
-    setQuestions((prev) => {
-      const current = [...prev];
-      if (current.length === numQuestions) return current;
-      
-      if (current.length < numQuestions) {
-        const added = Array.from({ length: numQuestions - current.length }, (_, i) => ({
-          id: current.length + i + 1,
-          label: `Q${current.length + i + 1}`,
-          co: "co1",
-          maxMarks: 10,
-        }));
-        return [...current, ...added];
-      } else {
-        return current.slice(0, numQuestions);
-      }
-    });
-  }, [numQuestions]);
 
   const calculateStudentPerformance = useCallback(
     (student, currentQuestions) => {
@@ -111,10 +78,34 @@ export default function QuestionSetup() {
     []
   );
 
-  useEffect(() => {
-    if (!students.length || !questions.length) return;
-    setStudents((prev) => prev.map((s) => calculateStudentPerformance(s, questions)));
-  }, [questions, calculateStudentPerformance]);
+  const adjustQuestionsToCount = useCallback(
+    (count) => {
+      setQuestions((prev) => {
+        const current = [...prev];
+        if (current.length === count) return current;
+
+        let nextQuestions;
+        if (current.length < count) {
+          const added = Array.from({ length: count - current.length }, (_, i) => ({
+            id: current.length + i + 1,
+            label: `Q${current.length + i + 1}`,
+            co: "co1",
+            maxMarks: 0,
+          }));
+          nextQuestions = [...current, ...added];
+        } else {
+          nextQuestions = current.slice(0, count);
+        }
+
+        setStudents((prevStudents) =>
+          prevStudents.map((student) => calculateStudentPerformance(student, nextQuestions))
+        );
+
+        return nextQuestions;
+      });
+    },
+    [calculateStudentPerformance]
+  );
 
   // Real-time autosave of students and configurations to sessionStorage
   useEffect(() => {
@@ -274,19 +265,19 @@ export default function QuestionSetup() {
             <div className="mt-3 flex flex-wrap gap-2">
               {academicDetails && (
                 <>
-                  <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+                  <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/">
                     {academicDetails.school}
                   </span>
-                  <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">
+                  <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/">
                     {academicDetails.department}
                   </span>
-                  <span className="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-700/10">
+                  <span className="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-700/">
                     {academicDetails.subject}
                   </span>
-                  <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-700/10">
+                  <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-700/">
                     Sem: {academicDetails.semester}
                   </span>
-                  <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-700/10">
+                  <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-700/">
                     {academicDetails.examType}
                   </span>
                 </>
@@ -310,20 +301,20 @@ export default function QuestionSetup() {
                   onChange={(e) => {
                     const valStr = e.target.value;
                     setNumQuestionsInput(valStr);
-                    const val = parseInt(valStr);
+                    const val = parseInt(valStr, 10);
                     if (!isNaN(val) && val >= 5 && val <= 30) {
-                      setNumQuestions(val);
+                      adjustQuestionsToCount(val);
                     }
                   }}
                   onBlur={() => {
-                    let val = parseInt(numQuestionsInput);
+                    let val = parseInt(numQuestionsInput, 10);
                     if (isNaN(val) || val < 5) {
                       val = 5;
                     } else if (val > 30) {
                       val = 30;
                     }
-                    setNumQuestions(val);
                     setNumQuestionsInput(val.toString());
+                    adjustQuestionsToCount(val);
                   }}
                   className="w-24 font-bold text-blue-600"
                 />
@@ -336,15 +327,15 @@ export default function QuestionSetup() {
             <CardContent className="p-4 flex items-center justify-between h-full">
                <FileActions
                   students={students}
-                  onUpload={(file) => parseExcel(file, { co1: 100, co2: 100, co3: 100, co4: 100, co5: 100 }, 500, (parsedStudents) => {
+                  onUpload={(file) => parseExcel(file, { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 }, 500, (parsedStudents) => {
                     setStudents(parsedStudents);
                     if (parsedStudents.length > 0 && parsedStudents[0].questionMarks) {
                        const qIds = Object.keys(parsedStudents[0].questionMarks).map(Number);
                        if (qIds.length > 0) {
                          const maxQ = Math.max(...qIds);
                          if (maxQ >= 5 && maxQ <= 30) {
-                           setNumQuestions(maxQ);
                            setNumQuestionsInput(maxQ.toString());
+                           adjustQuestionsToCount(maxQ);
                          }
                        }
                     }
@@ -352,7 +343,7 @@ export default function QuestionSetup() {
                   onDownload={() => {}}
                   results={null}
                 />
-                <Button variant="outline" onClick={addStudentRow} className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100">
+                <Button variant="outline" onClick={addStudentRow} className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-0">
                   + Add Student Row
                 </Button>
             </CardContent>

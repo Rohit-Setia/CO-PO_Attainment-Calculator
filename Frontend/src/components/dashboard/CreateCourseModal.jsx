@@ -116,6 +116,7 @@ export default function CreateCourseModal({
                 onChange={handleChange}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-200 focus:border-blue-500 focus:outline-none text-sm transition"
               >
+                <option value="4">4 COs</option>
                 <option value="5">5 COs</option>
                 <option value="6">6 COs</option>
               </select>
