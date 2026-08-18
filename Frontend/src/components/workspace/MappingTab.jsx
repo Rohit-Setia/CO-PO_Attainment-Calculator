@@ -7,7 +7,8 @@ export default function MappingTab({
   saving,
   handleMappingChange,
   getColAvg,
-  saveMappingMatrix
+  saveMappingMatrix,
+  readOnly = false
 }) {
   return (
     <div className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-6 space-y-6">
@@ -16,14 +17,16 @@ export default function MappingTab({
           <h4 className="font-bold text-lg text-slate-100">CO-PO Articulation Matrix</h4>
           <p className="text-xs text-slate-400">Establish the correlation between Course Outcomes (COs) and Program Outcomes (POs/PSOs).</p>
         </div>
-        <button
-          onClick={saveMappingMatrix}
-          disabled={saving}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold shadow-md transition"
-        >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Save Mappings
-        </button>
+        {!readOnly && (
+          <button
+            onClick={saveMappingMatrix}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold shadow-md transition"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save Mappings
+          </button>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-700/50">
@@ -51,9 +54,10 @@ export default function MappingTab({
                     return (
                       <td key={poIdx} className="border-r border-slate-700/60 p-1">
                         <select
+                          disabled={readOnly}
                           value={mapping[key] || 0}
                           onChange={(e) => handleMappingChange(coNum, `PO${poNum}`, e.target.value)}
-                          className="w-full bg-transparent border-0 text-center font-semibold text-slate-200 focus:outline-none focus:ring-0 cursor-pointer text-xs"
+                          className={`w-full bg-transparent border-0 text-center font-semibold text-slate-200 focus:outline-none focus:ring-0 text-xs ${readOnly ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
                         >
                           <option value={0} className="bg-slate-800 text-slate-400">-</option>
                           <option value={1} className="bg-slate-800 text-slate-200">1</option>
@@ -69,9 +73,10 @@ export default function MappingTab({
                     return (
                       <td key={psoKey} className={`${psoIdx < 2 ? 'border-r' : ''} border-slate-700/60 p-1`}>
                         <select
+                          disabled={readOnly}
                           value={mapping[key] || 0}
                           onChange={(e) => handleMappingChange(coNum, psoKey.toUpperCase(), e.target.value)}
-                          className="w-full bg-transparent border-0 text-center font-semibold text-slate-200 focus:outline-none focus:ring-0 cursor-pointer text-xs"
+                          className={`w-full bg-transparent border-0 text-center font-semibold text-slate-200 focus:outline-none focus:ring-0 text-xs ${readOnly ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
                         >
                           <option value={0} className="bg-slate-800 text-slate-400">-</option>
                           <option value={1} className="bg-slate-800 text-slate-200">1</option>
@@ -105,3 +110,4 @@ export default function MappingTab({
     </div>
   );
 }
+

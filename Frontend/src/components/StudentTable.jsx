@@ -11,7 +11,8 @@ export default function StudentTable({
   updateStudentInfo = () => {},
   removeStudent = () => {},
   coMax = {},
-  numCos = 5
+  numCos = 5,
+  readOnly = false
 }) {
   // Build CO array up to numCos only
   const coList = Array.from({ length: numCos }, (_, i) => `co${i + 1}`);
@@ -38,7 +39,8 @@ export default function StudentTable({
                 {co.toUpperCase()}%
               </th>
             ))}
-            <th className="border-b border-slate-700/60 px-3 py-3 text-center w-20">Action</th>
+            {/* Hide delete column header for Viewers */}
+            {!readOnly && <th className="border-b border-slate-700/60 px-3 py-3 text-center w-20">Action</th>}
           </tr>
         </thead>
 
@@ -49,7 +51,7 @@ export default function StudentTable({
               <td className="border-r border-slate-700/40 px-3 py-2 text-slate-400 text-center sticky left-0 bg-slate-900/80 z-10">
                 {i + 1}
               </td>
-              {/* Reg No (editable) */}
+              {/* Reg No */}
               <td className="border-r border-slate-700/40 px-2 py-2 sticky left-12 bg-slate-900/80 z-10">
                 <input
                   type="text"
@@ -59,17 +61,19 @@ export default function StudentTable({
                     updateStudentInfo(i, "reg_no", e.target.value);
                   }}
                   placeholder="Reg No"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+                  disabled={readOnly}
+                  className={`w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-default' : ''}`}
                 />
               </td>
-              {/* Name (editable) */}
+              {/* Name */}
               <td className="border-r border-slate-700/40 px-2 py-2">
                 <input
                   type="text"
                   value={s.name || ""}
                   onChange={(e) => updateStudentInfo(i, "name", e.target.value)}
                   placeholder="Student Name"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+                  disabled={readOnly}
+                  className={`w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-default' : ''}`}
                 />
               </td>
               {/* Total Marks (computed, read-only) */}
@@ -86,11 +90,12 @@ export default function StudentTable({
                     max={coMax[co]}
                     value={s[co] !== undefined && s[co] !== null && s[co] !== '' ? s[co] : ""}
                     onChange={(e) => updateMark(i, co, e.target.value)}
+                    disabled={readOnly}
                     className={`w-16 bg-slate-800 border rounded px-1.5 py-1 text-center text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${
                       parseFloat(s[co]) > (coMax[co] || Infinity)
                         ? 'border-red-500 bg-red-900/20 text-red-300'
                         : 'border-slate-700'
-                    }`}
+                    } ${readOnly ? 'opacity-60 cursor-default' : ''}`}
                   />
                 </td>
               ))}
@@ -107,16 +112,18 @@ export default function StudentTable({
                 );
               })}
 
-              {/* Remove */}
-              <td className="px-2 py-2 text-center">
-                <button
-                  onClick={() => removeStudent(i)}
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition"
-                  title="Remove row"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </td>
+              {/* Delete — hidden for read-only Viewers */}
+              {!readOnly && (
+                <td className="px-2 py-2 text-center">
+                  <button
+                    onClick={() => removeStudent(i)}
+                    className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition"
+                    title="Remove row"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

@@ -8,7 +8,7 @@ const courseRouter = require('./routes/courseRoutes');
 const errorHandler = require('./middlewares/errorMiddleware');
 
 const { createUsersTable } = require('./models/userModel');
-const { createCoursesTable } = require('./models/courseModel');
+const { createCoursesTable, createUserCourseAssignmentsTable } = require('./models/courseModel');
 const { createMappingTables } = require('./models/mappingModel');
 const { createMarksTable } = require('./models/marksModel');
 
@@ -37,6 +37,7 @@ const PORT = process.env.PORT || 5000;
 // Sequential initialization of tables
 createUsersTable()
   .then(() => createCoursesTable())
+  .then(() => createUserCourseAssignmentsTable())
   .then(() => createMappingTables())
   .then(() => createMarksTable())
   .then(() => {

@@ -6,6 +6,7 @@ import DashboardPage from './Pages/DashboardPage';
 import LoginPage from './Pages/LoginPage';
 import SignupPage from './Pages/SignupPage';
 import CourseWorkspace from './Pages/CourseWorkspace';
+import AdminPanel from './Pages/AdminPanel';
 
 const AppRoutes = () => {
   const { isAuthenticated } = useAuth();
@@ -31,6 +32,15 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+      {/* Admin-only user management panel */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute allowedRoles={['Admin']}>
+            <AdminPanel />
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -47,3 +57,4 @@ function App() {
 }
 
 export default App;
+

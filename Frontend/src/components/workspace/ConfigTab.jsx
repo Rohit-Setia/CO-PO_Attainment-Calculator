@@ -8,7 +8,8 @@ export default function ConfigTab({
   saving,
   handleConfigChange,
   handleCoDescChange,
-  saveConfigAndCos
+  saveConfigAndCos,
+  readOnly = false
 }) {
   // Guard: config not yet loaded from server
   if (!config || !course) {
@@ -39,9 +40,10 @@ export default function ConfigTab({
                 <input
                   type="number"
                   name="threshold_percent_internal"
+                  disabled={readOnly}
                   value={config.threshold_percent_internal}
                   onChange={handleConfigChange}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:border-blue-500 focus:outline-none"
+                  className={`w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                 />
               </div>
               <div className="grid grid-cols-3 gap-2 pt-1">
@@ -50,9 +52,10 @@ export default function ConfigTab({
                   <input
                     type="number"
                     name="level1_criteria_internal"
+                    disabled={readOnly}
                     value={config.level1_criteria_internal}
                     onChange={handleConfigChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none"
+                    className={`w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <div>
@@ -60,9 +63,10 @@ export default function ConfigTab({
                   <input
                     type="number"
                     name="level2_criteria_internal"
+                    disabled={readOnly}
                     value={config.level2_criteria_internal}
                     onChange={handleConfigChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none"
+                    className={`w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <div>
@@ -70,11 +74,34 @@ export default function ConfigTab({
                   <input
                     type="number"
                     name="level3_criteria_internal"
+                    disabled={readOnly}
                     value={config.level3_criteria_internal}
                     onChange={handleConfigChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none"
+                    className={`w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
+              </div>
+              <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-xs">
+                <span className="text-slate-400">Total Component Max:</span>
+                <input
+                  type="number"
+                  name="total_max_internal"
+                  disabled={readOnly}
+                  value={config.total_max_internal}
+                  onChange={handleConfigChange}
+                  className={`w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-center font-bold text-blue-400 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                />
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400">Weightage in Final CO %:</span>
+                <input
+                  type="number"
+                  name="internal_weight"
+                  disabled={readOnly}
+                  value={config.internal_weight}
+                  onChange={handleConfigChange}
+                  className={`w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-center font-bold text-amber-400 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                />
               </div>
             </div>
 
@@ -86,9 +113,10 @@ export default function ConfigTab({
                 <input
                   type="number"
                   name="threshold_percent_external"
+                  disabled={readOnly}
                   value={config.threshold_percent_external}
                   onChange={handleConfigChange}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:border-blue-500 focus:outline-none"
+                  className={`w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                 />
               </div>
               <div className="grid grid-cols-3 gap-2 pt-1">
@@ -97,9 +125,10 @@ export default function ConfigTab({
                   <input
                     type="number"
                     name="level1_criteria_external"
+                    disabled={readOnly}
                     value={config.level1_criteria_external}
                     onChange={handleConfigChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none"
+                    className={`w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <div>
@@ -107,9 +136,10 @@ export default function ConfigTab({
                   <input
                     type="number"
                     name="level2_criteria_external"
+                    disabled={readOnly}
                     value={config.level2_criteria_external}
                     onChange={handleConfigChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none"
+                    className={`w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <div>
@@ -117,63 +147,35 @@ export default function ConfigTab({
                   <input
                     type="number"
                     name="level3_criteria_external"
+                    disabled={readOnly}
                     value={config.level3_criteria_external}
                     onChange={handleConfigChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none"
+                    className={`w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 text-xs focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t border-slate-700/50">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Internal Exam Weightage %</label>
-              <input
-                type="number"
-                name="internal_weight"
-                value={config.internal_weight}
-                onChange={(e) => {
-                  const w = parseFloat(e.target.value) || 0;
-                  handleConfigChange({
-                    target: {
-                      name: 'internal_weight',
-                      value: w
-                    }
-                  });
-                  handleConfigChange({
-                    target: {
-                      name: 'external_weight',
-                      value: Math.max(0, 100 - w)
-                    }
-                  });
-                }}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">External Exam Weightage %</label>
-              <input
-                type="number"
-                name="external_weight"
-                value={config.external_weight}
-                onChange={(e) => {
-                  const w = parseFloat(e.target.value) || 0;
-                  handleConfigChange({
-                    target: {
-                      name: 'external_weight',
-                      value: w
-                    }
-                  });
-                  handleConfigChange({
-                    target: {
-                      name: 'internal_weight',
-                      value: Math.max(0, 100 - w)
-                    }
-                  });
-                }}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm focus:border-blue-500 focus:outline-none"
-              />
+              <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-xs">
+                <span className="text-slate-400">Total Component Max:</span>
+                <input
+                  type="number"
+                  name="total_max_external"
+                  disabled={readOnly}
+                  value={config.total_max_external}
+                  onChange={handleConfigChange}
+                  className={`w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-center font-bold text-blue-400 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                />
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400">Weightage in Final CO %:</span>
+                <input
+                  type="number"
+                  name="external_weight"
+                  disabled={readOnly}
+                  value={config.external_weight}
+                  onChange={handleConfigChange}
+                  className={`w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-center font-bold text-amber-400 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -192,6 +194,7 @@ export default function ConfigTab({
                   <label className="block text-[9px] text-slate-500">Max for Int</label>
                   <input
                     type="number"
+                    disabled={readOnly}
                     value={config[`co${i + 1}_max_internal`] ?? 10}
                     onChange={(e) => handleConfigChange({
                       target: {
@@ -199,13 +202,14 @@ export default function ConfigTab({
                         value: parseInt(e.target.value) || 0
                       }
                     })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded p-1 text-center text-xs text-white"
+                    className={`w-full bg-slate-800 border border-slate-700 rounded p-1 text-center text-xs text-white ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <div>
                   <label className="block text-[9px] text-slate-500">Max for Ext</label>
                   <input
                     type="number"
+                    disabled={readOnly}
                     value={config[`co${i + 1}_max_external`] ?? 20}
                     onChange={(e) => handleConfigChange({
                       target: {
@@ -213,7 +217,7 @@ export default function ConfigTab({
                         value: parseInt(e.target.value) || 0
                       }
                     })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded p-1 text-center text-xs text-white"
+                    className={`w-full bg-slate-800 border border-slate-700 rounded p-1 text-center text-xs text-white ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
               </div>
@@ -235,25 +239,28 @@ export default function ConfigTab({
                 <div key={idx} className="space-y-1">
                   <label className="block text-xs font-bold text-slate-400">CO{item.co_number} Statement</label>
                   <textarea
+                    disabled={readOnly}
                     value={item.description}
                     onChange={(e) => handleCoDescChange(idx, e.target.value)}
                     rows={2}
                     placeholder="Describe learning outcomes..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100 text-xs focus:border-blue-500 focus:outline-none resize-none"
+                    className={`w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100 text-xs focus:border-blue-500 focus:outline-none resize-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
               ))}
             </div>
           </div>
 
-          <button
-            onClick={saveConfigAndCos}
-            disabled={saving}
-            className="w-full mt-4 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-lg shadow-blue-600/15"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save Setup Configurations
-          </button>
+          {!readOnly && (
+            <button
+              onClick={saveConfigAndCos}
+              disabled={saving}
+              className="w-full mt-4 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-lg shadow-blue-600/15"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save Setup Configurations
+            </button>
+          )}
         </div>
       </div>
     </div>

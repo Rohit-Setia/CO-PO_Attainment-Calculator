@@ -6,7 +6,15 @@ import { Trash2 } from "lucide-react";
  * Question-wise marks entry table.
  * Works with students loaded from DB (reg_no, total_marks) or newly added rows (roll).
  */
-export default function QuestionWiseTable({ students, questions, updateMark, updateQuestionConfig, updateStudentInfo, removeStudent }) {
+export default function QuestionWiseTable({
+  students,
+  questions,
+  updateMark,
+  updateQuestionConfig,
+  updateStudentInfo,
+  removeStudent,
+  readOnly = false
+}) {
   return (
     <div className="w-full overflow-x-auto">
       <table className="w-full text-sm border-collapse min-w-max">
@@ -24,8 +32,9 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                   {/* CO Assignment dropdown */}
                   <select
                     value={q.co}
+                    disabled={readOnly}
                     onChange={(e) => updateQuestionConfig(i, "co", e.target.value)}
-                    className="w-full rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-xs font-medium text-slate-200 focus:border-blue-500 focus:outline-none"
+                    className={`w-full rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-xs font-medium text-slate-200 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
                     {COS.map((co) => (
                       <option key={co} value={co} className="bg-slate-800">
@@ -39,18 +48,19 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                     <input
                       type="number"
                       min="1"
+                      disabled={readOnly}
                       value={q.maxMarks !== undefined && q.maxMarks !== null ? q.maxMarks : ""}
                       onChange={(e) => {
                         const val = e.target.value;
                         updateQuestionConfig(i, "maxMarks", val === "" ? "" : (parseInt(val) || 0));
                       }}
-                      className="w-full rounded border border-slate-600 bg-slate-800 px-1.5 py-1 text-center text-xs text-white focus:border-blue-500 focus:outline-none font-bold"
+                      className={`w-full rounded border border-slate-600 bg-slate-800 px-1.5 py-1 text-center text-xs text-white focus:border-blue-500 focus:outline-none font-bold ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                     />
                   </div>
                 </div>
               </th>
             ))}
-            <th className="border-b border-slate-700/60 px-3 py-3 text-center w-20">Action</th>
+            {!readOnly && <th className="border-b border-slate-700/60 px-3 py-3 text-center w-20">Action</th>}
           </tr>
         </thead>
 
@@ -61,27 +71,29 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
               <td className="sticky left-0 z-10 bg-slate-900/90 border-r border-slate-700/40 px-3 py-2 text-slate-400 text-center min-w-[48px]">
                 {i + 1}
               </td>
-              {/* Reg No (editable) */}
+              {/* Reg No */}
               <td className="sticky left-12 z-10 bg-slate-900/90 border-r border-slate-700/40 px-2 py-2 min-w-[144px]">
                 <input
                   type="text"
+                  disabled={readOnly}
                   value={student.roll || student.reg_no || ""}
                   onChange={(e) => {
                     updateStudentInfo(i, "roll", e.target.value);
                     updateStudentInfo(i, "reg_no", e.target.value);
                   }}
                   placeholder="Reg No"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+                  className={`w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-default' : ''}`}
                 />
               </td>
-              {/* Name (editable) */}
+              {/* Name */}
               <td className="sticky left-[192px] z-10 bg-slate-900/90 border-r border-slate-700/40 px-2 py-2 min-w-[192px]">
                 <input
                   type="text"
+                  disabled={readOnly}
                   value={student.name || ""}
                   onChange={(e) => updateStudentInfo(i, "name", e.target.value)}
                   placeholder="Student Name"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+                  className={`w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-default' : ''}`}
                 />
               </td>
               {/* Total (read-only, computed) */}
@@ -100,6 +112,7 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                       type="number"
                       min="0"
                       max={q.maxMarks}
+                      disabled={readOnly}
                       value={val !== undefined && val !== null && val !== '' ? val : ""}
                       onChange={(e) => {
                         const raw = e.target.value;
@@ -109,22 +122,24 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
                         isOver || isUnder
                           ? 'border-red-500 bg-red-900/20 text-red-300'
                           : 'border-slate-600 bg-slate-800 text-slate-100'
-                      }`}
+                      } ${readOnly ? 'opacity-60 cursor-default' : ''}`}
                     />
                   </td>
                 );
               })}
 
               {/* Remove */}
-              <td className="px-2 py-2 text-center">
-                <button
-                  onClick={() => removeStudent(i)}
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition"
-                  title="Remove student"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </td>
+              {!readOnly && (
+                <td className="px-2 py-2 text-center">
+                  <button
+                    onClick={() => removeStudent(i)}
+                    className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition"
+                    title="Remove student"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -132,3 +147,4 @@ export default function QuestionWiseTable({ students, questions, updateMark, upd
     </div>
   );
 }
+

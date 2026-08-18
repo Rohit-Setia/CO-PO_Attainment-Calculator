@@ -12,6 +12,7 @@ import {
   Loader2, CheckCircle2, ShieldAlert, Share2
 } from 'lucide-react';
 import { parseExcel } from '../utils/excelParser';
+import { useAuth } from '../context/AuthContext';
 
 // Import Modular Components
 import ConfigTab from '../components/workspace/ConfigTab';
@@ -22,6 +23,8 @@ import AttainmentTab from '../components/workspace/AttainmentTab';
 export default function CourseWorkspace() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
+  const isReadOnly = hasRole('Viewer');
   const [course, setCourse] = useState(null);
   const [config, setConfig] = useState(null);
   const [coDescriptions, setCoDescriptions] = useState([]);
@@ -551,6 +554,14 @@ export default function CourseWorkspace() {
 
       {/* Main Workspace Workspace */}
       <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* View Only Mode Banner for Viewers */}
+        {isReadOnly && (
+          <div className="mb-6 flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-amber-200 text-sm">
+            <span className="font-bold text-amber-400">👁 View Only Mode:</span>
+            <span>You have read-only access to this course. You can inspect mappings, student marks, calculate attainments, and export reports, but cannot modify records.</span>
+          </div>
+        )}
+
         {status && (
           <div className="mb-6 flex items-center gap-2 bg-blue-500/10 border border-blue-500/25 rounded-xl p-4 text-blue-200 text-sm">
             <CheckCircle2 className="h-5 w-5 text-blue-400 shrink-0" />
@@ -608,6 +619,7 @@ export default function CourseWorkspace() {
               handleConfigChange={handleConfigChange}
               handleCoDescChange={handleCoDescChange}
               saveConfigAndCos={saveConfigAndCos}
+              readOnly={isReadOnly}
             />
           )}
 
@@ -619,6 +631,7 @@ export default function CourseWorkspace() {
               handleMappingChange={handleMappingChange}
               getColAvg={getColAvg}
               saveMappingMatrix={saveMappingMatrix}
+              readOnly={isReadOnly}
             />
           )}
 
@@ -645,6 +658,7 @@ export default function CourseWorkspace() {
               updateStudentInfo={updateStudentInfo}
               removeStudent={removeStudent}
               addStudentRow={addStudentRow}
+              readOnly={isReadOnly}
             />
           )}
 

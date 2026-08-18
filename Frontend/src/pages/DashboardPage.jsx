@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { fetchCourses, createCourse, deleteCourse, importCourseJson } from '../Api/AttainmentApi';
 import { useAuth } from '../context/AuthContext';
 import { 
-  BookOpen, Plus, Award, LogOut, Loader2, RefreshCw, Upload, CheckCircle2, X
+  BookOpen, Plus, Award, LogOut, Loader2, RefreshCw, Upload, CheckCircle2, X, ShieldCheck
 } from 'lucide-react';
 
 import CourseCard from '../components/dashboard/CourseCard';
@@ -20,7 +20,7 @@ const academicStructure = {
 
 const DashboardPage = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, hasRole } = useAuth();
   const [courses, setCourses]       = useState([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
@@ -173,7 +173,7 @@ const DashboardPage = () => {
             <Award className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-200 bg-clip-text text-transparent">OBE Calculator</h1>
+            <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-200 bg-clip-text text-transparent">CO-PO Attainemnt Calculator</h1>
             <p className="text-xs text-slate-400">Course & Program Outcome Attainment</p>
           </div>
         </div>
@@ -182,7 +182,28 @@ const DashboardPage = () => {
           <div className="hidden sm:block text-right">
             <p className="text-sm font-medium text-slate-200">{user?.name}</p>
             <p className="text-xs text-slate-400">{user?.email}</p>
+            {/* Role badge */}
+            {user?.role && (
+              <span className={`mt-0.5 inline-block text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded border
+                ${ user.role === 'Admin' ? 'bg-red-500/20 text-red-300 border-red-500/30'
+                  : user.role === 'Examination Team' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                  : user.role === 'Teacher' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                  : 'bg-slate-500/20 text-slate-300 border-slate-500/30' }`}>
+                {user.role}
+              </span>
+            )}
           </div>
+          {/* Admin Panel link — only visible to Admins */}
+          {hasRole('Admin') && (
+            <button
+              onClick={() => navigate('/admin')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-800/50 hover:bg-red-900/20 transition duration-200 text-sm font-medium text-red-400"
+              title="Open Admin Panel"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              <span className="hidden sm:inline">Admin</span>
+            </button>
+          )}
           <button 
             onClick={logout}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800/80 transition duration-200 text-sm font-medium text-slate-300"
@@ -203,28 +224,32 @@ const DashboardPage = () => {
             <p className="text-slate-300 max-w-lg">Manage course details, articulation mapping matrices, student marks, and generate NBA-compliant reports with live Excel formulas.</p>
           </div>
           <div className="flex flex-wrap gap-3 justify-center sm:justify-end">
-            {/* Import Course */}
-            <label
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-600 bg-slate-800/60 hover:bg-slate-700/60 text-slate-200 font-semibold cursor-pointer transition duration-200"
-              title="Import a course from another teacher's JSON snapshot"
-            >
-              <Upload className="h-4 w-4" /> Import Course
-              <input
-                ref={importInputRef}
-                type="file"
-                accept=".json,application/json"
-                onChange={handleImportFile}
-                className="hidden"
-              />
-            </label>
-            {/* Create Course */}
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold shadow-lg shadow-indigo-600/25 transition duration-300 transform hover:-translate-y-0.5"
-            >
-              <Plus className="h-5 w-5" />
-              Create Course
-            </button>
+            {/* Import Course — hidden for Viewers */}
+            {!hasRole('Viewer') && (
+              <label
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-600 bg-slate-800/60 hover:bg-slate-700/60 text-slate-200 font-semibold cursor-pointer transition duration-200"
+                title="Import a course from another teacher's JSON snapshot"
+              >
+                <Upload className="h-4 w-4" /> Import Course
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleImportFile}
+                  className="hidden"
+                />
+              </label>
+            )}
+            {/* Create Course — Admins, Examination Team, and Teachers only */}
+            {hasRole('Admin', 'Examination Team', 'Teacher') && (
+              <button
+                onClick={() => setShowModal(true)}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold shadow-lg shadow-indigo-600/25 transition duration-300 transform hover:-translate-y-0.5"
+              >
+                <Plus className="h-5 w-5" />
+                Create Course
+              </button>
+            )}
           </div>
         </div>
 

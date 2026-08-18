@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui/input"
 import { COS } from "@/utils/calculations"
 
-export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, thresholdPercent, setThresholdPercent, levelCriteria, setLevelCriteria }) {
+export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, thresholdPercent, setThresholdPercent, levelCriteria, setLevelCriteria, readOnly = false }) {
 
   const safeNumber = (value) => {
     const num = Number(value)
@@ -48,9 +48,10 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
         <Input
           type="number"
           min={0}
-          className="w-28"
+          className={`w-28 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
           value={totalMax !== undefined && totalMax !== null ? totalMax : ""}
           onChange={(e) => handleTotalChange(e.target.value)}
+          disabled={readOnly}
         />
       </div>
 
@@ -62,11 +63,12 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
             <Input
               type="number"
               min={0}
-              className="w-20"
+              className={`w-20 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
               value={coMax[co] !== undefined && coMax[co] !== null ? coMax[co] : ""}
               onChange={(e) =>
                 handleCoChange(co, e.target.value)
               }
+              disabled={readOnly}
             />
           </div>
         ))}
@@ -83,7 +85,9 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
               const val = e.target.value;
               setThresholdPercent(val === "" ? "" : Number(val));
             }}
-            className="w-32" min={0} max={100} placeholder="40"
+            className={`w-32 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+            min={0} max={100} placeholder="40"
+            disabled={readOnly}
           />
         </div>
         <div>
@@ -96,8 +100,8 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
                 const val = e.target.value;
                 setLevelCriteria({ ...levelCriteria, level3: val === "" ? "" : Number(val) });
               }} 
-              className="w-20" 
-              placeholder="70"
+              className={`w-20 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+              placeholder="70" disabled={readOnly}
             />≥L3
             <Input 
               type="number" 
@@ -106,8 +110,8 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
                 const val = e.target.value;
                 setLevelCriteria({ ...levelCriteria, level2: val === "" ? "" : Number(val) });
               }} 
-              className="w-20" 
-              placeholder="60"
+              className={`w-20 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+              placeholder="60" disabled={readOnly}
             />≥L2
             <Input 
               type="number" 
@@ -116,8 +120,8 @@ export default function CoMaxEditor({ coMax, setCoMax, totalMax, setTotalMax, th
                 const val = e.target.value;
                 setLevelCriteria({ ...levelCriteria, level1: val === "" ? "" : Number(val) });
               }} 
-              className="w-20" 
-              placeholder="50"
+              className={`w-20 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+              placeholder="50" disabled={readOnly}
             />≥L1
           </div>
         </div>

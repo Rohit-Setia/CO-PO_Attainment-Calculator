@@ -36,7 +36,10 @@ const normalizeStudent = (student, coMax, totalMax) => {
 
 export default function Student() {
   const navigate = useNavigate()
-  const { logout } = useAuth()
+  const { logout, hasRole } = useAuth()
+
+  // Viewers can see everything and run calculations, but cannot edit data
+  const isReadOnly = hasRole('Viewer')
   const [rawStudents, setRawStudents] = useState(() => {
     const stored = sessionStorage.getItem("setupStudents");
     if (stored) return JSON.parse(stored);
@@ -287,6 +290,14 @@ export default function Student() {
         {/* Main Content Card */}
         <Card className="shadow-lg">
           <CardContent className="p-6">
+            {/* View-only banner for Viewers */}
+            {isReadOnly && (
+              <div className="mb-6 rounded-lg border border-amber-400/40 bg-amber-50 px-4 py-3 flex items-center gap-2">
+                <span className="text-amber-600 text-sm font-semibold">👁 View Only Mode</span>
+                <span className="text-amber-700 text-xs">You can view data and run calculations, but cannot edit marks or settings.</span>
+              </div>
+            )}
+
             {/* CO MAX + TOTAL MAX */}
             <div className="mb-8">
               <h2 className="mb-4 text-lg font-semibold text-slate-900">Configuration</h2>
@@ -299,6 +310,7 @@ export default function Student() {
                 setThresholdPercent={setThresholdPercent}
                 levelCriteria={levelCriteria}
                 setLevelCriteria={setLevelCriteria}
+                readOnly={isReadOnly}
               />
             </div>
 
@@ -312,6 +324,7 @@ export default function Student() {
                 }
                 onDownload={downloadReportExcel}
                 results={results}
+                canUpload={!isReadOnly}
               />
             </div>
 
@@ -331,6 +344,7 @@ export default function Student() {
                     students={students}
                     updateMark={updateMark}
                     coMax={coMax}
+                    readOnly={isReadOnly}
                   />
                 </div>
               </div>

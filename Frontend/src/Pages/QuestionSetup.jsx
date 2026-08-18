@@ -11,7 +11,8 @@ import { useAuth } from "@/context/AuthContext";
 
 export default function QuestionSetup() {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, hasRole } = useAuth();
+  const isReadOnly = hasRole('Viewer');
   const [students, setStudents] = useState(() => {
     const stored = sessionStorage.getItem("setupStudents");
     if (stored) {
@@ -290,13 +291,25 @@ export default function QuestionSetup() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="p-4">
-              <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Question Selection</label>
+        {/* View Only Alert */}
+        {isReadOnly && (
+          <div className="mb-6 rounded-lg border border-amber-400/40 bg-amber-50 px-4 py-3 flex items-center gap-2">
+            <span className="text-amber-600 text-sm font-semibold">👁 View Only Mode</span>
+            <span className="text-amber-700 text-xs">You can view question configurations and student records, but cannot edit.</span>
+          </div>
+        )}
+
+        {/* Global Controls Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8 items-stretch">
+          <Card className="lg:col-span-1">
+            <CardContent className="p-4 flex flex-col justify-center h-full">
+              <label className="block text-sm font-bold text-slate-700 mb-2">Total Questions</label>
               <div className="flex items-center gap-3">
                 <Input
                   type="number"
+                  min="5"
+                  max="30"
+                  disabled={isReadOnly}
                   value={numQuestionsInput}
                   onChange={(e) => {
                     const valStr = e.target.value;
@@ -327,6 +340,7 @@ export default function QuestionSetup() {
             <CardContent className="p-4 flex items-center justify-between h-full">
                <FileActions
                   students={students}
+                  canUpload={!isReadOnly}
                   onUpload={(file) => parseExcel(file, { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 }, 500, (parsedStudents) => {
                     setStudents(parsedStudents);
                     if (parsedStudents.length > 0 && parsedStudents[0].questionMarks) {
@@ -343,9 +357,11 @@ export default function QuestionSetup() {
                   onDownload={() => {}}
                   results={null}
                 />
-                <Button variant="outline" onClick={addStudentRow} className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-0">
-                  + Add Student Row
-                </Button>
+                {!isReadOnly && (
+                  <Button variant="outline" onClick={addStudentRow} className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-0">
+                    + Add Student Row
+                  </Button>
+                )}
             </CardContent>
           </Card>
         </div>
@@ -364,6 +380,7 @@ export default function QuestionSetup() {
             updateQuestionConfig={updateQuestionConfig}
             updateStudentInfo={updateStudentInfo}
             removeStudent={removeStudent}
+            readOnly={isReadOnly}
           />
         </div>
 

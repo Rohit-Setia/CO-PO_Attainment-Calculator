@@ -31,19 +31,62 @@ const createCoursesTable = async () => {
   `);
 };
 
-const getCoursesByTeacher = async (teacherId) => {
-  const [rows] = await pool.query(
-    'SELECT * FROM courses WHERE teacher_id = ? ORDER BY created_at DESC',
-    [teacherId]
-  );
+// 3. Create user-course assignment table (RBAC fine-grained access)
+const createUserCourseAssignmentsTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_course_assignments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      course_id INT NOT NULL,
+      assigned_role ENUM('Teacher', 'Viewer') NOT NULL DEFAULT 'Teacher',
+      assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES teachers(id) ON DELETE CASCADE,
+      FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+      UNIQUE KEY unique_user_course (user_id, course_id)
+    ) ENGINE=InnoDB;
+  `);
+};
+
+/**
+ * getCoursesByTeacher:
+ * - Admin / Examination Team → see all courses in the system
+ * - Teacher / Viewer → see only courses they created or are assigned to
+ */
+const getCoursesByTeacher = async (userId, userRole) => {
+  if (userRole === 'Admin' || userRole === 'Examination Team') {
+    const [rows] = await pool.query(
+      'SELECT * FROM courses ORDER BY created_at DESC'
+    );
+    return rows;
+  }
+  // For Teachers and Viewers: owned courses UNION assigned courses
+  const [rows] = await pool.query(`
+    SELECT DISTINCT c.* FROM courses c
+    LEFT JOIN user_course_assignments uca ON uca.course_id = c.id AND uca.user_id = ?
+    WHERE c.teacher_id = ? OR uca.user_id = ?
+    ORDER BY c.created_at DESC
+  `, [userId, userId, userId]);
   return rows;
 };
 
-const getCourseById = async (id, teacherId) => {
-  const [rows] = await pool.query(
-    'SELECT * FROM courses WHERE id = ? AND teacher_id = ?',
-    [id, teacherId]
-  );
+/**
+ * getCourseById:
+ * - Admin / Examination Team → can access any course
+ * - Teacher / Viewer → must own or be assigned to the course
+ */
+const getCourseById = async (id, userId, userRole) => {
+  if (userRole === 'Admin' || userRole === 'Examination Team') {
+    const [rows] = await pool.query(
+      'SELECT * FROM courses WHERE id = ?',
+      [id]
+    );
+    return rows[0];
+  }
+  const [rows] = await pool.query(`
+    SELECT DISTINCT c.* FROM courses c
+    LEFT JOIN user_course_assignments uca ON uca.course_id = c.id AND uca.user_id = ?
+    WHERE c.id = ? AND (c.teacher_id = ? OR uca.user_id = ?)
+  `, [userId, id, userId, userId]);
   return rows[0];
 };
 
@@ -56,12 +99,51 @@ const createCourse = async ({ teacherId, school, department, subjectName, course
   return result.insertId;
 };
 
-const deleteCourse = async (id, teacherId) => {
+/**
+ * deleteCourse:
+ * - Admin → can delete any course
+ * - Teacher → can only delete courses they created (teacher_id)
+ */
+const deleteCourse = async (id, userId, userRole) => {
+  if (userRole === 'Admin') {
+    const [result] = await pool.query('DELETE FROM courses WHERE id = ?', [id]);
+    return result.affectedRows > 0;
+  }
   const [result] = await pool.query(
     'DELETE FROM courses WHERE id = ? AND teacher_id = ?',
-    [id, teacherId]
+    [id, userId]
   );
   return result.affectedRows > 0;
+};
+
+// Assign or update a user's role on a specific course
+const assignUserToCourse = async (courseId, userId, assignedRole) => {
+  await pool.query(`
+    INSERT INTO user_course_assignments (user_id, course_id, assigned_role)
+    VALUES (?, ?, ?)
+    ON DUPLICATE KEY UPDATE assigned_role = VALUES(assigned_role)
+  `, [userId, courseId, assignedRole]);
+};
+
+// Remove a user's assignment from a course
+const removeUserFromCourse = async (courseId, userId) => {
+  const [result] = await pool.query(
+    'DELETE FROM user_course_assignments WHERE course_id = ? AND user_id = ?',
+    [courseId, userId]
+  );
+  return result.affectedRows > 0;
+};
+
+// Get all users assigned to a specific course
+const getAssignmentsForCourse = async (courseId) => {
+  const [rows] = await pool.query(`
+    SELECT t.id, t.name, t.email, t.role AS system_role, uca.assigned_role, uca.assigned_at
+    FROM user_course_assignments uca
+    JOIN teachers t ON t.id = uca.user_id
+    WHERE uca.course_id = ?
+    ORDER BY uca.assigned_at DESC
+  `, [courseId]);
+  return rows;
 };
 
 const getCoDescriptions = async (courseId) => {
@@ -86,10 +168,14 @@ const saveCoDescriptions = async (courseId, coDescriptions) => {
 
 module.exports = {
   createCoursesTable,
+  createUserCourseAssignmentsTable,
   getCoursesByTeacher,
   getCourseById,
   createCourse,
   deleteCourse,
   getCoDescriptions,
   saveCoDescriptions,
+  assignUserToCourse,
+  removeUserFromCourse,
+  getAssignmentsForCourse,
 };

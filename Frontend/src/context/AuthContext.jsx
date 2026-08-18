@@ -10,10 +10,17 @@ export const AuthProvider = ({ children }) => {
   });
 
   const login = (authToken, authUser) => {
+    // Only store safe, non-sensitive fields
+    const safeUser = {
+      id: authUser.id,
+      name: authUser.name,
+      email: authUser.email,
+      role: authUser.role,
+    };
     localStorage.setItem('teacher_token', authToken);
-    localStorage.setItem('teacher_user', JSON.stringify(authUser));
+    localStorage.setItem('teacher_user', JSON.stringify(safeUser));
     setToken(authToken);
-    setUser(authUser);
+    setUser(safeUser);
   };
 
   const logout = () => {
@@ -28,6 +35,8 @@ export const AuthProvider = ({ children }) => {
       token,
       user,
       isAuthenticated: Boolean(token),
+      // Helper: check if the current user has one of the given roles
+      hasRole: (...roles) => Boolean(user && roles.includes(user.role)),
       login,
       logout,
       setUser,

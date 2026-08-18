@@ -6,17 +6,20 @@ export default function FileActions({
   onUpload,
   onDownload,
   results,
+  canUpload = true,
 }) {
   return (
-    <div className="flex gap-4 mb-4 items-center">
-      {/* Upload */}
-      <input
-        type="file"
-        accept=".xls,.xlsx"
-        onChange={(e) => onUpload(e.target.files[0])}
-      />
+    <div className="flex gap-4 mb-4 items-center flex-wrap">
+      {/* Upload — hidden for Viewers */}
+      {canUpload && (
+        <input
+          type="file"
+          accept=".xls,.xlsx"
+          onChange={(e) => onUpload(e.target.files[0])}
+        />
+      )}
 
-      {/* Download */}
+      {/* Download — available to all roles */}
       <Button
         onClick={onDownload}
         disabled={!students.length || !results}
@@ -27,3 +30,4 @@ export default function FileActions({
     </div>
   )
 }
+

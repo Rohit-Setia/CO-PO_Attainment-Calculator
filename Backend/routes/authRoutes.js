@@ -1,8 +1,15 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { registerTeacher, loginTeacher, getTeacherProfile } = require('../controllers/authController');
+const {
+  registerTeacher,
+  loginTeacher,
+  getTeacherProfile,
+  listUsers,
+  updateUser,
+} = require('../controllers/authController');
 const validateRequest = require('../middlewares/validateRequest');
 const protect = require('../middlewares/authMiddleware');
+const { authorizeRoles } = require('../middlewares/roleMiddleware');
 
 const router = express.Router();
 
@@ -33,4 +40,29 @@ router.post(
 
 router.get('/auth/dashboard', protect, getTeacherProfile);
 
+// ── Admin-only user management ───────────────────────────────────────────────
+
+// GET /api/auth/admin/users — list all users (Admin only)
+router.get('/auth/admin/users', protect, authorizeRoles('Admin'), listUsers);
+
+// PUT /api/auth/admin/users/:id — update role and/or active status (Admin only)
+router.put(
+  '/auth/admin/users/:id',
+  protect,
+  authorizeRoles('Admin'),
+  [
+    body('role')
+      .optional()
+      .isIn(['Admin', 'Examination Team', 'Teacher', 'Viewer'])
+      .withMessage('Invalid role value'),
+    body('is_active')
+      .optional()
+      .isBoolean()
+      .withMessage('is_active must be a boolean'),
+  ],
+  validateRequest,
+  updateUser,
+);
+
 module.exports = router;
+

@@ -25,6 +25,7 @@ export default function MarksTab({
   updateStudentInfo,
   removeStudent,
   addStudentRow,
+  readOnly = false,
 }) {
   return (
     <div className="space-y-6">
@@ -102,6 +103,7 @@ export default function MarksTab({
               <div className="flex items-center gap-3">
                 <input
                   type="number"
+                  disabled={readOnly}
                   value={numQuestionsInput}
                   onChange={(e) => {
                     const valStr = e.target.value;
@@ -128,7 +130,7 @@ export default function MarksTab({
                       });
                     }
                   }}
-                  className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-sm font-bold text-blue-400 focus:border-blue-500 focus:outline-none"
+                  className={`w-20 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-sm font-bold text-blue-400 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                 />
                 <span className="text-xs text-slate-400">
                   (Specify questions count from 1 to 30)
@@ -159,35 +161,37 @@ export default function MarksTab({
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/30 hover:bg-slate-800 text-xs font-semibold text-slate-200 cursor-pointer transition">
-              <Upload className="h-3.5 w-3.5" /> Import Excel
-              <input
-                type="file"
-                accept=".xlsx, .xls"
-                onChange={handleExcelUpload}
-                className="hidden"
-              />
-            </label>
-            <button
-              onClick={addStudentRow}
-              className="flex items-center gap-1 px-3 py-2 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-xs font-semibold text-blue-400 transition"
-            >
-              <Plus className="h-3.5 w-3.5" /> Add Student Row
-            </button>
-            <button
-              onClick={saveMarksList}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition"
-            >
-              {saving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Save className="h-3.5 w-3.5" />
-              )}
-              Save All Grades
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="flex flex-wrap gap-2">
+              <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/30 hover:bg-slate-800 text-xs font-semibold text-slate-200 cursor-pointer transition">
+                <Upload className="h-3.5 w-3.5" /> Import Excel
+                <input
+                  type="file"
+                  accept=".xlsx, .xls"
+                  onChange={handleExcelUpload}
+                  className="hidden"
+                />
+              </label>
+              <button
+                onClick={addStudentRow}
+                className="flex items-center gap-1 px-3 py-2 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-xs font-semibold text-blue-400 transition"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add Student Row
+              </button>
+              <button
+                onClick={saveMarksList}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition"
+              >
+                {saving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+                Save All Grades
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Data list view */}
@@ -208,6 +212,7 @@ export default function MarksTab({
               updateQuestionConfig={updateQuestionConfig}
               updateStudentInfo={updateStudentInfo}
               removeStudent={removeStudent}
+              readOnly={readOnly}
             />
           </div>
         ) : (
@@ -219,6 +224,7 @@ export default function MarksTab({
               removeStudent={removeStudent}
               numCos={numCos}
               coMax={coMax}
+              readOnly={readOnly}
             />
           </div>
         )}
@@ -226,3 +232,4 @@ export default function MarksTab({
     </div>
   );
 }
+

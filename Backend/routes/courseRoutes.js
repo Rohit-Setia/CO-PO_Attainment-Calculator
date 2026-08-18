@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const protect = require('../middlewares/authMiddleware');
+const { checkCoursePermission, authorizeRoles } = require('../middlewares/roleMiddleware');
 const {
   createCourse,
   getCoursesByTeacher,
@@ -8,6 +9,9 @@ const {
   deleteCourse,
   getCoDescriptions,
   saveCoDescriptions,
+  assignUserToCourse,
+  removeUserFromCourse,
+  getAssignmentsForCourse,
 } = require('../models/courseModel');
 const {
   getMapping,
@@ -21,13 +25,15 @@ const {
   deleteMarksByCourse,
 } = require('../models/marksModel');
 const { calculateCourseAttainment } = require('../utils/attainmentCalculator');
+const pool = require('../config/db');
+const { findUserByEmail } = require('../models/userModel');
 
 // 1. Course CRUD
 router.get('/courses', protect, async (req, res, next) => {
   try {
-    const courses = await getCoursesByTeacher(req.user.id);
-    const pool = require('../config/db');
-    
+    // getCoursesByTeacher is now role-aware: Admin/Exam Team see all, others see own/assigned
+    const courses = await getCoursesByTeacher(req.user.id, req.user.role);
+
     const enriched = await Promise.all(courses.map(async (course) => {
       const [mappingRows] = await pool.query('SELECT COUNT(*) as count FROM co_po_mappings WHERE course_id = ?', [course.id]);
       const [mttRows] = await pool.query('SELECT COUNT(*) as count FROM student_marks WHERE course_id = ? AND exam_type = "MTT"', [course.id]);
@@ -56,7 +62,8 @@ router.get('/courses', protect, async (req, res, next) => {
   }
 });
 
-router.post('/courses', protect, async (req, res, next) => {
+// Only Admins, Examination Team, and Teachers can create courses
+router.post('/courses', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { school, department, subjectName, courseCode, semester, academicYear, numCos } = req.body;
     const courseId = await createCourse({
@@ -109,9 +116,10 @@ router.post('/courses', protect, async (req, res, next) => {
   }
 });
 
-router.delete('/courses/:id', protect, async (req, res, next) => {
+// Only Admin or the course creator (Teacher) can delete a course
+router.delete('/courses/:id', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
-    const deleted = await deleteCourse(req.params.id, req.user.id);
+    const deleted = await deleteCourse(req.params.id, req.user.id, req.user.role);
     if (!deleted) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
@@ -121,10 +129,56 @@ router.delete('/courses/:id', protect, async (req, res, next) => {
   }
 });
 
-// 2. Course Workspace config
-router.get('/courses/:id/config', protect, async (req, res, next) => {
+// ── Course Assignment Management ─────────────────────────────────────────────
+// Assign or update a user on a course (Admin, Examination Team, or the Teacher owner)
+router.post('/courses/:id/assign', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id);
+    const courseId = req.params.id;
+    const { email, assigned_role } = req.body;
+
+    if (!['Teacher', 'Viewer'].includes(assigned_role)) {
+      return res.status(400).json({ success: false, message: 'assigned_role must be Teacher or Viewer' });
+    }
+    const targetUser = await findUserByEmail(email);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'No user found with that email.' });
+    }
+
+    await assignUserToCourse(courseId, targetUser.id, assigned_role);
+    return res.json({
+      success: true,
+      message: `${targetUser.name} assigned as ${assigned_role} on this course.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Remove a user from a course assignment (Admin, Examination Team, or Teacher owner)
+router.delete('/courses/:id/assign/:userId', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const removed = await removeUserFromCourse(req.params.id, req.params.userId);
+    if (!removed) return res.status(404).json({ success: false, message: 'Assignment not found.' });
+    return res.json({ success: true, message: 'User removed from course.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get all users assigned to a course
+router.get('/courses/:id/assignments', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
+  try {
+    const assignments = await getAssignmentsForCourse(req.params.id);
+    return res.json({ success: true, data: assignments });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 2. Course Workspace config — all authenticated users can read their course configs
+router.get('/courses/:id/config', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
+  try {
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
@@ -174,9 +228,10 @@ router.get('/courses/:id/config', protect, async (req, res, next) => {
   }
 });
 
-router.post('/courses/:id/config', protect, async (req, res, next) => {
+// Only Admins, Examination Team, and Teachers (owners/assigned) can save config
+router.post('/courses/:id/config', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id);
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
@@ -200,10 +255,10 @@ router.post('/courses/:id/config', protect, async (req, res, next) => {
   }
 });
 
-// 3. CO-PO Mapping Matrix
-router.get('/courses/:id/mapping', protect, async (req, res, next) => {
+// 3. CO-PO Mapping Matrix — all course members can read
+router.get('/courses/:id/mapping', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id);
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
@@ -215,9 +270,10 @@ router.get('/courses/:id/mapping', protect, async (req, res, next) => {
   }
 });
 
-router.post('/courses/:id/mapping', protect, async (req, res, next) => {
+// Only Admins, Examination Team, and Teachers can save CO-PO mapping
+router.post('/courses/:id/mapping', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id);
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
@@ -249,10 +305,10 @@ router.post('/courses/:id/mapping', protect, async (req, res, next) => {
   }
 });
 
-// 4. Student Marks
-router.get('/courses/:id/marks', protect, async (req, res, next) => {
+// 4. Student Marks — all assigned users can read
+router.get('/courses/:id/marks', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id);
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
@@ -286,9 +342,10 @@ router.get('/courses/:id/marks', protect, async (req, res, next) => {
   }
 });
 
-router.post('/courses/:id/marks', protect, async (req, res, next) => {
+// Only Admins, Examination Team, and Teachers (assigned) can save marks
+router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id);
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
@@ -333,10 +390,10 @@ router.post('/courses/:id/marks', protect, async (req, res, next) => {
   }
 });
 
-// 5. Attainment Calculation Engine
-router.get('/courses/:id/attainment', protect, async (req, res, next) => {
+// 5. Attainment Calculation Engine — all course members can trigger calculation
+router.get('/courses/:id/attainment', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id);
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
@@ -363,10 +420,10 @@ router.get('/courses/:id/attainment', protect, async (req, res, next) => {
   }
 });
 
-// 6. Export full course as a portable JSON snapshot
-router.get('/courses/:id/export-json', protect, async (req, res, next) => {
+// 6. Export full course as a portable JSON snapshot — all course members can export
+router.get('/courses/:id/export-json', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id);
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
@@ -420,8 +477,8 @@ router.get('/courses/:id/export-json', protect, async (req, res, next) => {
   }
 });
 
-// 7. Import course from a JSON snapshot (creates a new course under the importing teacher)
-router.post('/courses/import-json', protect, async (req, res, next) => {
+// 7. Import course from a JSON snapshot — Admins, Examination Team, Teachers only
+router.post('/courses/import-json', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { courseData } = req.body;
     if (!courseData || !courseData.course) {
