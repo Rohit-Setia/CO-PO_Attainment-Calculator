@@ -132,15 +132,15 @@ CO-PO Attainment/
    Create a `.env` file in the `Backend/` directory:
    ```env
    PORT=5000
-   CLIENT_URL=http://localhost:5173
-   DB_HOST=localhost
-   DB_USER=root
-   DB_PASSWORD=your_mysql_password
-   DB_NAME=teacher_auth
-   DB_PORT=3306
-   JWT_SECRET=your_super_secret_jwt_key
+   CLIENT_URL=YOUR_FRONTEND_URL
+   DB_HOST=<YOUR_MYSQL_HOST>
+   DB_USER=<YOUR_MYSQL_USER>
+   DB_PASSWORD=<YOUR_MYSQL_PASSWORD>
+   DB_NAME=<YOUR_DATABASE_NAME>
+   DB_PORT=3306 || <YOUR_DATABASE_PORT>
+   JWT_SECRET=<YOUR_RANDOM_SECRET_KEY>
    ```
-   *Note: Ensure the database `teacher_auth` exists in MySQL before launching (`CREATE DATABASE IF NOT EXISTS teacher_auth;`).*
+   *Note: Ensure your target database is created in MySQL before starting the server.*
 
 4. **Start the Backend server**:
    ```bash
@@ -163,13 +163,13 @@ CO-PO Attainment/
 3. **Configure environment variables**:
    Create a `.env` file in the `Frontend/` directory:
    ```env
-   VITE_API_URL=http://localhost:5000/api
+   VITE_API_URL=<YOUR_FRONTEND_URL>/api
    ```
 4. **Start the Frontend development server**:
    ```bash
    npm run dev
    ```
-   *Access the web application at [http://localhost:5173](http://localhost:5173).*
+   *Access the web application at <YOUR_FRONTEND_URL>.*
 
 ---
 
@@ -179,14 +179,14 @@ To safeguard student records and institutional configurations, all new user regi
 
 To activate your initial Administrator account:
 
-1. **Sign up** at `http://localhost:5173/signup` using your Admin credentials.
+1. **Sign up** at `<YOUR_FRONTEND_URL>/signup` using your Admin credentials.
 2. **Activate and assign the Admin role** via a single query in your MySQL client:
    ```sql
    UPDATE teachers 
    SET role = 'Admin', is_active = TRUE 
    WHERE email = 'your-admin@email.com';
    ```
-3. **Log in** at `http://localhost:5173/login`. 
+3. **Log in** at `<YOUR_FRONTEND_URL>/login`. 
 4. The **Admin Control Panel** button (`/admin`) will appear in the navigation bar, allowing you to approve accounts, toggle statuses, and assign roles directly from the interface.
 
 ---
