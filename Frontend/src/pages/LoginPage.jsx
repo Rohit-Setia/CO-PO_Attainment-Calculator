@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 import { loginTeacher } from '../Api/authApi';
 import AuthLayout from '../components/auth/AuthLayout';
 import { useAuth } from '../context/AuthContext';
@@ -28,7 +29,7 @@ const LoginPage = () => {
       const { token, user } = response.data.data;
       login(token, user);
 
-      const redirectTo = location.state?.from?.pathname || '/student';
+      const redirectTo = location.state?.from?.pathname || '/dashboard';
       navigate(redirectTo, { replace: true });
     } catch (apiError) {
       setError(apiError.response?.data?.message || 'Unable to login. Please try again.');
@@ -38,10 +39,10 @@ const LoginPage = () => {
   };
 
   return (
-    <AuthLayout title="Teacher Login" subtitle="Sign in to access your dashboard">
+    <AuthLayout title="Sign In" subtitle="Sign in to access your workspace">
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
+          <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-foreground">
             Email
           </label>
           <input
@@ -51,12 +52,13 @@ const LoginPage = () => {
             value={formData.email}
             onChange={onChange}
             required
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none"
+            autoFocus
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground transition focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
 
         <div>
-          <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
+          <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-foreground">
             Password
           </label>
           <input
@@ -66,24 +68,29 @@ const LoginPage = () => {
             value={formData.password}
             onChange={onChange}
             required
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground transition focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
 
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {error ? (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
 
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg bg-slate-900 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-70"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-hover disabled:opacity-70"
         >
-          {loading ? 'Logging in...' : 'Login'}
+          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {loading ? 'Signing in...' : 'Sign In'}
         </button>
       </form>
 
-      <p className="mt-4 text-sm text-slate-600">
+      <p className="mt-4 text-center text-sm text-muted-foreground">
         New teacher?{' '}
-        <Link className="font-medium text-slate-900 underline" to="/signup">
+        <Link className="font-medium text-primary underline-offset-4 hover:underline" to="/signup">
           Create an account
         </Link>
       </p>

@@ -1,4 +1,3 @@
-import React from "react";
 import { COS } from "@/utils/calculations";
 import { Trash2 } from "lucide-react";
 
@@ -17,34 +16,34 @@ export default function QuestionWiseTable({
 }) {
   return (
     <div className="w-full overflow-x-auto">
-      <table className="w-full text-sm border-collapse min-w-max">
-        <thead className="bg-slate-900 text-slate-300">
+      <table className="w-full min-w-max border-collapse text-sm">
+        <thead className="bg-muted/60 text-muted-foreground">
           {/* Main headers row */}
           <tr>
-            <th className="sticky left-0 z-30 bg-slate-900 border-r border-b border-slate-700/60 px-3 py-3 text-left w-12 min-w-[48px]">Sr</th>
-            <th className="sticky left-12 z-30 bg-slate-900 border-r border-b border-slate-700/60 px-3 py-3 text-left w-36 min-w-[144px]">Reg No</th>
-            <th className="sticky left-[192px] z-30 bg-slate-900 border-r border-b border-slate-700/60 px-3 py-3 text-left w-48 min-w-[192px]">Student Name</th>
-            <th className="border-r border-b border-slate-700/60 px-3 py-3 text-center font-bold text-blue-400 w-24 min-w-[96px]">Total</th>
+            <th className="sticky left-0 z-30 w-12 min-w-[48px] border-b border-r border-border bg-muted px-3 py-3 text-left">Sr</th>
+            <th className="sticky left-12 z-30 w-36 min-w-[144px] border-b border-r border-border bg-muted px-3 py-3 text-left">Reg No</th>
+            <th className="sticky left-[192px] z-30 w-48 min-w-[192px] border-b border-r border-border bg-muted px-3 py-3 text-left">Student Name</th>
+            <th className="w-24 min-w-[96px] border-b border-r border-border px-3 py-3 text-center font-bold text-primary">Total</th>
             {questions.map((q, i) => (
-              <th key={q.id} className="border-r border-b border-slate-700/60 px-2 py-2 text-center w-40 min-w-[160px]">
-                <div className="flex flex-col gap-2 items-center">
-                  <span className="text-sm font-bold text-slate-200">{q.label}</span>
+              <th key={q.id} className="w-40 min-w-[160px] border-b border-r border-border px-2 py-2 text-center">
+                <div className="flex flex-col items-center gap-2">
+                  <span className="text-sm font-bold text-foreground">{q.label}</span>
                   {/* CO Assignment dropdown */}
                   <select
                     value={q.co}
                     disabled={readOnly}
                     onChange={(e) => updateQuestionConfig(i, "co", e.target.value)}
-                    className={`w-full rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-xs font-medium text-slate-200 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    className="w-full rounded-lg border border-input bg-background px-2 py-1 text-xs font-medium text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {COS.map((co) => (
-                      <option key={co} value={co} className="bg-slate-800">
+                      <option key={co} value={co} className="bg-popover">
                         {co.toUpperCase()}
                       </option>
                     ))}
                   </select>
                   {/* Max Marks input */}
-                  <div className="flex items-center gap-1 w-full">
-                    <span className="text-[10px] text-slate-500 font-semibold whitespace-nowrap">Max:</span>
+                  <div className="flex w-full items-center gap-1">
+                    <span className="whitespace-nowrap text-[10px] font-semibold text-muted-foreground">Max:</span>
                     <input
                       type="number"
                       min="1"
@@ -54,25 +53,25 @@ export default function QuestionWiseTable({
                         const val = e.target.value;
                         updateQuestionConfig(i, "maxMarks", val === "" ? "" : (parseInt(val) || 0));
                       }}
-                      className={`w-full rounded border border-slate-600 bg-slate-800 px-1.5 py-1 text-center text-xs text-white focus:border-blue-500 focus:outline-none font-bold ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      className="w-full rounded border border-input bg-background px-1.5 py-1 text-center text-xs font-bold text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
                 </div>
               </th>
             ))}
-            {!readOnly && <th className="border-b border-slate-700/60 px-3 py-3 text-center w-20">Action</th>}
+            {!readOnly && <th className="w-20 border-b border-border px-3 py-3 text-center">Action</th>}
           </tr>
         </thead>
 
         <tbody>
           {students.map((student, i) => (
-            <tr key={student.id || i} className="border-b border-slate-700/40 hover:bg-slate-800/20 transition">
+            <tr key={student.id || i} className="border-b border-border transition hover:bg-muted/30">
               {/* Serial */}
-              <td className="sticky left-0 z-10 bg-slate-900/90 border-r border-slate-700/40 px-3 py-2 text-slate-400 text-center min-w-[48px]">
+              <td className="sticky left-0 z-10 min-w-[48px] border-r border-border bg-card px-3 py-2 text-center text-muted-foreground">
                 {i + 1}
               </td>
               {/* Reg No */}
-              <td className="sticky left-12 z-10 bg-slate-900/90 border-r border-slate-700/40 px-2 py-2 min-w-[144px]">
+              <td className="sticky left-12 z-10 min-w-[144px] border-r border-border bg-card px-2 py-2">
                 <input
                   type="text"
                   disabled={readOnly}
@@ -82,22 +81,22 @@ export default function QuestionWiseTable({
                     updateStudentInfo(i, "reg_no", e.target.value);
                   }}
                   placeholder="Reg No"
-                  className={`w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-default' : ''}`}
+                  className="w-full rounded border border-input bg-background px-2 py-1 text-xs text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-default disabled:opacity-60"
                 />
               </td>
               {/* Name */}
-              <td className="sticky left-[192px] z-10 bg-slate-900/90 border-r border-slate-700/40 px-2 py-2 min-w-[192px]">
+              <td className="sticky left-[192px] z-10 min-w-[192px] border-r border-border bg-card px-2 py-2">
                 <input
                   type="text"
                   disabled={readOnly}
                   value={student.name || ""}
                   onChange={(e) => updateStudentInfo(i, "name", e.target.value)}
                   placeholder="Student Name"
-                  className={`w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-default' : ''}`}
+                  className="w-full rounded border border-input bg-background px-2 py-1 text-xs text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-default disabled:opacity-60"
                 />
               </td>
               {/* Total (read-only, computed) */}
-              <td className="border-r border-slate-700/40 px-3 py-2 text-center font-bold text-blue-400 text-sm">
+              <td className="border-r border-border px-3 py-2 text-center text-sm font-bold text-primary">
                 {parseFloat(student.total_marks ?? student.totalMarks ?? 0).toFixed(1)}
               </td>
 
@@ -107,7 +106,7 @@ export default function QuestionWiseTable({
                 const isOver = val > q.maxMarks;
                 const isUnder = val < 0;
                 return (
-                  <td key={q.id} className="border-r border-slate-700/40 px-2 py-2 text-center">
+                  <td key={q.id} className="border-r border-border px-2 py-2 text-center">
                     <input
                       type="number"
                       min="0"
@@ -118,11 +117,11 @@ export default function QuestionWiseTable({
                         const raw = e.target.value;
                         updateMark(i, q.id, raw === "" ? "" : (parseFloat(raw) || 0));
                       }}
-                      className={`w-16 rounded border px-1.5 py-1 text-center text-xs focus:border-blue-500 focus:outline-none font-medium ${
+                      className={`w-16 rounded border px-1.5 py-1 text-center text-xs font-medium focus:outline-none focus:ring-1 focus:ring-ring ${
                         isOver || isUnder
-                          ? 'border-red-500 bg-red-900/20 text-red-300'
-                          : 'border-slate-600 bg-slate-800 text-slate-100'
-                      } ${readOnly ? 'opacity-60 cursor-default' : ''}`}
+                          ? 'border-destructive bg-destructive/10 text-destructive'
+                          : 'border-input bg-background text-foreground focus:border-ring'
+                      } ${readOnly ? 'cursor-default opacity-60' : ''}`}
                     />
                   </td>
                 );
@@ -133,7 +132,7 @@ export default function QuestionWiseTable({
                 <td className="px-2 py-2 text-center">
                   <button
                     onClick={() => removeStudent(i)}
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition"
+                    className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
                     title="Remove student"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -147,4 +146,3 @@ export default function QuestionWiseTable({
     </div>
   );
 }
-

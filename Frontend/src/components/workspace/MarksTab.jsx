@@ -1,14 +1,19 @@
-import React from "react";
 import { Upload, Users, Loader2, Save, Plus, HelpCircle } from "lucide-react";
 import StudentTable from "../StudentTable";
 import QuestionWiseTable from "../QuestionWiseTable";
+import EmptyState from "../ui/EmptyState";
+
+const segmentBtn = (active) =>
+  `rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+    active
+      ? "border-primary bg-primary text-primary-foreground"
+      : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+  }`;
 
 export default function MarksTab({
-  course,
   coMax = {},
   numCos = 5,
   students,
-  setStudents,
   activeExamType,
   setActiveExamType,
   entryMode,
@@ -32,72 +37,40 @@ export default function MarksTab({
       {/* Top controls: Component selection and Entry Mode selector */}
       <div className="grid gap-6 md:grid-cols-4">
         {/* Component Selector */}
-        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-6 space-y-4">
-          <h4 className="font-bold text-base text-slate-200 border-b border-slate-700/50 pb-2">
+        <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
+          <h4 className="border-b border-border pb-2 text-base font-bold text-foreground">
             Exam Component
           </h4>
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveExamType("MTT")}
-              className={`py-2 px-3 rounded-xl border text-xs font-semibold transition ${
-                activeExamType === "MTT"
-                  ? "bg-blue-600 border-blue-500 text-white"
-                  : "border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-              }`}
-            >
+            <button type="button" onClick={() => setActiveExamType("MTT")} className={segmentBtn(activeExamType === "MTT")}>
               MTT (Internal)
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveExamType("ETT")}
-              className={`py-2 px-3 rounded-xl border text-xs font-semibold transition ${
-                activeExamType === "ETT"
-                  ? "bg-blue-600 border-blue-500 text-white"
-                  : "border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-              }`}
-            >
+            <button type="button" onClick={() => setActiveExamType("ETT")} className={segmentBtn(activeExamType === "ETT")}>
               ETT (External)
             </button>
           </div>
         </div>
 
         {/* Data Entry Mode Selector */}
-        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-6 space-y-4">
-          <h4 className="font-bold text-base text-slate-200 border-b border-slate-700/50 pb-2">
+        <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
+          <h4 className="border-b border-border pb-2 text-base font-bold text-foreground">
             Data Entry Mode
           </h4>
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setEntryMode("co")}
-              className={`py-2 px-3 rounded-xl border text-xs font-semibold transition ${
-                entryMode === "co"
-                  ? "bg-blue-600 border-blue-500 text-white"
-                  : "border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-              }`}
-            >
+            <button type="button" onClick={() => setEntryMode("co")} className={segmentBtn(entryMode === "co")}>
               Direct CO-Wise
             </button>
-            <button
-              type="button"
-              onClick={() => setEntryMode("question")}
-              className={`py-2 px-3 rounded-xl border text-xs font-semibold transition ${
-                entryMode === "question"
-                  ? "bg-blue-600 border-blue-500 text-white"
-                  : "border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-              }`}
-            >
+            <button type="button" onClick={() => setEntryMode("question")} className={segmentBtn(entryMode === "question")}>
               Question-Wise
             </button>
           </div>
         </div>
 
         {/* Question Wise config fields (Visible only in question mode) */}
-        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-6 space-y-4 md:col-span-2">
+        <div className="space-y-4 rounded-2xl border border-border bg-card p-6 md:col-span-2">
           {entryMode === "question" ? (
             <>
-              <h4 className="font-bold text-base text-slate-200 border-b border-slate-700/50 pb-2">
+              <h4 className="border-b border-border pb-2 text-base font-bold text-foreground">
                 Questions Count
               </h4>
               <div className="flex items-center gap-3">
@@ -130,16 +103,16 @@ export default function MarksTab({
                       });
                     }
                   }}
-                  className={`w-20 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-sm font-bold text-blue-400 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  className="w-20 rounded-lg border border-input bg-background px-2 py-1.5 text-center text-sm font-bold text-primary transition focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                 />
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-muted-foreground">
                   (Specify questions count from 1 to 30)
                 </span>
               </div>
             </>
           ) : (
-            <div className="h-full flex items-center justify-center text-slate-500 text-xs italic gap-1.5 py-2">
-              <HelpCircle className="h-4 w-4 text-slate-600" />
+            <div className="flex h-full items-center justify-center gap-1.5 py-2 text-xs italic text-muted-foreground">
+              <HelpCircle className="h-4 w-4" />
               Direct mode inputs totals per CO column directly.
             </div>
           )}
@@ -147,15 +120,15 @@ export default function MarksTab({
       </div>
 
       {/* Main spreadsheet interface card */}
-      <div className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-6 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-700/50 pb-4">
+      <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
+        <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
           <div>
-            <h4 className="font-bold text-lg text-slate-100">
+            <h4 className="text-lg font-bold text-foreground">
               {activeExamType === "MTT"
                 ? "MTT Assessment Grades Sheet"
                 : "End-Sem ETT Grades Sheet"}
             </h4>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-muted-foreground">
               Configure question layouts, input marks per column, or upload
               Excel spreadsheets to populate.
             </p>
@@ -163,7 +136,7 @@ export default function MarksTab({
 
           {!readOnly && (
             <div className="flex flex-wrap gap-2">
-              <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/30 hover:bg-slate-800 text-xs font-semibold text-slate-200 cursor-pointer transition">
+              <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-secondary">
                 <Upload className="h-3.5 w-3.5" /> Import Excel
                 <input
                   type="file"
@@ -174,14 +147,14 @@ export default function MarksTab({
               </label>
               <button
                 onClick={addStudentRow}
-                className="flex items-center gap-1 px-3 py-2 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-xs font-semibold text-blue-400 transition"
+                className="flex items-center gap-1 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20"
               >
                 <Plus className="h-3.5 w-3.5" /> Add Student Row
               </button>
               <button
                 onClick={saveMarksList}
                 disabled={saving}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition"
+                className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground shadow-md transition hover:bg-primary-hover disabled:opacity-70"
               >
                 {saving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -196,13 +169,11 @@ export default function MarksTab({
 
         {/* Data list view */}
         {students.length === 0 ? (
-          <div className="py-20 text-center text-slate-500 space-y-3">
-            <Users className="h-10 w-10 text-slate-600 mx-auto" />
-            <p className="text-sm">
-              No student rows populated yet. Add rows manually or import via
-              Excel.
-            </p>
-          </div>
+          <EmptyState
+            icon={Users}
+            title="No student rows yet"
+            description="Add rows manually or import via Excel to start entering marks."
+          />
         ) : entryMode === "question" ? (
           <div className="overflow-x-auto">
             <QuestionWiseTable
@@ -216,7 +187,7 @@ export default function MarksTab({
             />
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+          <div className="overflow-x-auto rounded-xl border border-border">
             <StudentTable
               students={students}
               updateMark={updateMark}
@@ -232,4 +203,3 @@ export default function MarksTab({
     </div>
   );
 }
-
