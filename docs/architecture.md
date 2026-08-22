@@ -46,8 +46,13 @@ Every `/api/courses/:id/...` route uses both `protect` and `checkCoursePermissio
 
 Design tokens (`--background`, `--foreground`, `--card`, `--primary`, `--border`, `--success`, `--warning`, etc.) are defined as HSL CSS custom properties in `src/index.css`, mapped into Tailwind's color palette in `tailwind.config.js`, and consumed by every component via `bg-*`/`text-*`/`border-*` utility classes — never hardcoded hex/slate values in redesigned components. `ThemeContext` toggles a `.dark` class on `<html>` and persists the choice to `localStorage`; the dark palette is tuned to match the app's original slate/indigo look rather than shadcn's generic default.
 
+## Dynamic Course Outcomes
+
+CO count, per-CO max marks, question count, and question→CO mapping are all teacher-controlled and persisted through the normalized `course_outcomes` / `question_configs` / `co_po_values` / `student_co_marks` / `student_question_marks` tables — not a fixed CO1-6 assumption anywhere in the active code path. See [database.md](database.md) for the full schema and [calculation-methodology.md](calculation-methodology.md) for how the attainment engine consumes it. The previous fixed-width schema (`co_po_mappings`, `course_configs.co{N}_max_*`, `student_marks.co1..co6`) still exists in the database as an inert migration source — nothing reads or writes it going forward.
+
 ## Known architectural limitations
 
-- `co_po_mappings` and `course_configs` are fixed-width tables (hardcoded CO1–6 × PO1–12 × PSO1–3 columns), not normalized. Fine for the current fixed scope; would need redesigning to support a variable PO/PSO count per program.
+- PO/PSO count is still fixed at 12 + 3 columns (only the CO dimension was required to become dynamic) — would need a similar normalization to make PO/PSO count configurable per program.
 - No caching layer (React Query/SWR) on the frontend — every tab switch in the Course Workspace re-fetches from the API that was already fetched once at page load, via local state, not a fresh network call, but there's no request de-duplication or background revalidation.
 - Single JS bundle (~1.4MB before gzip) — no route-based code splitting yet.
+- The legacy fixed-width tables/columns (see database.md) are never cleaned up automatically — a future migration could drop them once every course has been confirmed to work correctly against the normalized schema in production.

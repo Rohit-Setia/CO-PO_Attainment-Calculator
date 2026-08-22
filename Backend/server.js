@@ -9,8 +9,12 @@ const errorHandler = require('./middlewares/errorMiddleware');
 
 const { createUsersTable } = require('./models/userModel');
 const { createCoursesTable, createUserCourseAssignmentsTable } = require('./models/courseModel');
-const { createMappingTables } = require('./models/mappingModel');
-const { createMarksTable } = require('./models/marksModel');
+const { createMappingTables, createCoPoValueTable, migrateLegacyMappingToCoPoValues } = require('./models/mappingModel');
+const {
+  createMarksTable, createStudentCoMarksTable, createStudentQuestionMarksTable, migrateLegacyStudentMarks,
+} = require('./models/marksModel');
+const { createCourseOutcomeTables, migrateLegacyCoursesToOutcomes } = require('./models/courseOutcomeModel');
+const { createQuestionConfigTable, migrateLegacyQuestionConfigs } = require('./models/questionConfigModel');
 
 const app = express();
 
@@ -57,12 +61,24 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-// Sequential initialization of tables
+// Sequential initialization of tables, then a one-time additive migration into the normalized
+// dynamic-CO schema (course_outcomes, co_po_values, question_configs, student_co_marks,
+// student_question_marks). Every migration step is idempotent (skips courses/rows already
+// migrated) and never modifies or drops the legacy tables/columns it reads from.
 createUsersTable()
   .then(() => createCoursesTable())
   .then(() => createUserCourseAssignmentsTable())
   .then(() => createMappingTables())
   .then(() => createMarksTable())
+  .then(() => createCourseOutcomeTables())
+  .then(() => migrateLegacyCoursesToOutcomes())
+  .then(() => createCoPoValueTable())
+  .then(() => migrateLegacyMappingToCoPoValues())
+  .then(() => createQuestionConfigTable())
+  .then(() => migrateLegacyQuestionConfigs())
+  .then(() => createStudentCoMarksTable())
+  .then(() => createStudentQuestionMarksTable())
+  .then(() => migrateLegacyStudentMarks())
   .then(() => {
     app.listen(PORT, () => console.log('Server running on', PORT));
   })
