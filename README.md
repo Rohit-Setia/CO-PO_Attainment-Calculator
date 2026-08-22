@@ -4,6 +4,8 @@ A full-stack, enterprise-grade web application built for educational institution
 
 This platform empowers administrators, examination teams, subject coordinators, and faculty to manage academic courses, configure question-level and outcome-level mappings, import student records via Excel, visualize attainment metrics with interactive charts, and export professionally formatted reports with live Excel formulas.
 
+📄 **Deeper docs**: [Architecture](docs/architecture.md) · [Database Schema](docs/database.md) · [Calculation Methodology](docs/calculation-methodology.md) · [Deployment](docs/deployment.md)
+
 ---
 
 ## 🚀 Key Features
@@ -26,6 +28,10 @@ This platform empowers administrators, examination teams, subject coordinators, 
   * **Portable JSON Course Snapshots**: Export complete course snapshots (structure, configs, descriptions, mappings, and marks) as a JSON file and import them across departments or faculty accounts.
 * **⚡ Self-Healing Database & Zero-Config Schema**:
   * The backend automatically creates and updates MySQL tables (`teachers`, `courses`, `co_descriptions`, `user_course_assignments`, `co_po_mappings`, `course_configs`, `student_marks`) on startup using dynamic `INFORMATION_SCHEMA` migrations.
+* **🎨 Design System & Theming**:
+  * A reusable token-based UI primitive library (`Frontend/src/components/ui/`) — Dialog, Table, Tabs, Select, Tooltip, Badge, Skeleton, EmptyState, ErrorState — shared across every screen.
+  * Real light/dark theme toggle (persisted to `localStorage`), tuned so dark mode preserves the app's original slate/indigo look.
+  * Subtle Framer Motion transitions (page entrance, staggered cards, hover elevation) and `sonner` toast notifications in place of native `alert()`/`confirm()`.
 
 ---
 
@@ -49,8 +55,7 @@ CO-PO Attainment/
 │   │   ├── marksModel.js                # Student Marks (MTT/ETT) Persistence
 │   │   └── userModel.js                 # User Model, RBAC Migrations & Admin Queries
 │   ├── routes/
-│   │   ├── authRoutes.js                # Auth & Admin Management Endpoints
-│   │   ├── calculate.js                 # Standalone Attainment Calculation API
+│   │   ├── authRoutes.js                # Auth & Admin Management Endpoints (rate-limited)
 │   │   ├── courseRoutes.js               # Full Course Workspace, Marks & Snapshot APIs
 │   │   └── excelExport.js               # ExcelJS Styled Workbook Generation API
 │   ├── utils/
@@ -70,35 +75,33 @@ CO-PO Attainment/
 │   │   │   │   └── ProtectedRoute.jsx   # Role-Aware Route Guard
 │   │   │   ├── dashboard/
 │   │   │   │   ├── CourseCard.jsx       # Course Grid Card with Status Indicators
-│   │   │   │   └── CreateCourseModal.jsx # Academic Course Setup Modal
-│   │   │   ├── ui/                      # Reusable UI Primitives (Card, Button, Alert, Input)
+│   │   │   │   └── CreateCourseModal.jsx # Academic Course Setup Modal (Dialog primitive)
+│   │   │   ├── layout/
+│   │   │   │   └── AppHeader.jsx        # Shared top bar (identity, theme toggle, nav) for every authenticated page
+│   │   │   ├── ui/                      # Design-system primitives: Button, Input, Card, Alert, Badge,
+│   │   │   │                            # Dialog, Table, Tabs, Select, Tooltip, Skeleton, EmptyState,
+│   │   │   │                            # ErrorState, MetricCard, ConfirmDialog, ThemeToggle, PageTransition
 │   │   │   ├── workspace/
 │   │   │   │   ├── AttainmentTab.jsx    # Attainment Metrics, Level Table & Charts
 │   │   │   │   ├── ConfigTab.jsx        # Target Criteria & CO Max Splits Form
-│   │   │   │   ├── MappingTab.jsx       # CO-PO / PSO Articulation Matrix Grid
+│   │   │   │   ├── MappingTab.jsx       # CO-PO / PSO Articulation Matrix Heatmap
 │   │   │   │   └── MarksTab.jsx         # Marks Spreadsheet, MTT/ETT & Mode Switcher
-│   │   │   ├── AttainmentResult.jsx     # Attainment Cards & Level Matrix
-│   │   │   ├── CoMaxEditor.jsx          # Max Marks & Target Threshold Editor
-│   │   │   ├── FileActions.jsx          # Excel Import & Export Action Bar
-│   │   │   ├── QuestionConfig.jsx       # Question Setup Configuration Control
 │   │   │   ├── QuestionWiseTable.jsx    # Question Marks Entry Spreadsheet
 │   │   │   └── StudentTable.jsx         # Direct CO Marks Entry Spreadsheet
 │   │   ├── context/
-│   │   │   └── AuthContext.jsx          # Global Auth State & hasRole() Helper
+│   │   │   ├── AuthContext.jsx          # Global Auth State & hasRole() Helper
+│   │   │   └── ThemeContext.jsx         # Dark/Light Theme State (persisted to localStorage)
 │   │   ├── Pages/
 │   │   │   ├── AdminPanel.jsx           # User Management, Approvals & Role Assignment
 │   │   │   ├── CourseWorkspace.jsx      # Tabbed Course Workspace
 │   │   │   ├── DashboardPage.jsx        # Faculty Dashboard & Course Management
 │   │   │   ├── LoginPage.jsx            # Sign In Screen
-│   │   │   ├── QuestionSetup.jsx        # Standalone Question Weights & Mapping Page
-│   │   │   ├── SelectDetails.jsx        # Standalone Academic Details Setup Page
-│   │   │   ├── SignupPage.jsx           # User Registration Screen
-│   │   │   └── student.jsx              # Standalone Student Marks & Live Attainment Page
+│   │   │   └── SignupPage.jsx           # User Registration Screen
 │   │   ├── utils/
 │   │   │   ├── calculations.js          # CO Constants & Math Helpers
-│   │   │   └── excelParser.js           # Multi-Header XLSX / CSV Import Engine
+│   │   │   └── excelParser.js           # Multi-Header XLSX / CSV Import Engine with Per-Row Validation
 │   │   ├── App.jsx                      # Client Route Definitions with RBAC Guards
-│   │   ├── index.css                    # Tailwind CSS & Global Glassmorphism Styles
+│   │   ├── index.css                    # Tailwind CSS & Light/Dark Design Tokens
 │   │   └── main.jsx                     # Vite React Application Entry Point
 │   ├── package.json
 │   ├── tailwind.config.js               # Tailwind Design Tokens & Configuration
@@ -129,18 +132,19 @@ CO-PO Attainment/
    npm install
    ```
 3. **Configure environment variables**:
-   Create a `.env` file in the `Backend/` directory:
+   Copy [`Backend/.env.example`](Backend/.env.example) to `Backend/.env` and fill in real values:
    ```env
    PORT=5000
-   CLIENT_URL=YOUR_FRONTEND_URL
+   CLIENT_URL=YOUR_FRONTEND_URL          # comma-separate multiple origins, e.g. staging,prod
    DB_HOST=<YOUR_MYSQL_HOST>
    DB_USER=<YOUR_MYSQL_USER>
    DB_PASSWORD=<YOUR_MYSQL_PASSWORD>
    DB_NAME=<YOUR_DATABASE_NAME>
-   DB_PORT=3306 || <YOUR_DATABASE_PORT>
-   JWT_SECRET=<YOUR_RANDOM_SECRET_KEY>
+   DB_PORT=3306
+   JWT_SECRET=<YOUR_RANDOM_SECRET_KEY>   # required — the server refuses to start without this set
    ```
-   *Note: Ensure your target database is created in MySQL before starting the server.*
+   Generate a secret with: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+   *Note: Ensure your target database is created in MySQL before starting the server. Never commit `.env` — it's git-ignored.*
 
 4. **Start the Backend server**:
    ```bash
@@ -160,10 +164,10 @@ CO-PO Attainment/
    ```bash
    npm install
    ```
-3. **Configure environment variables**:
+3. **Configure environment variables** (optional — defaults to `http://localhost:5000/api`):
    Create a `.env` file in the `Frontend/` directory:
    ```env
-   VITE_API_URL=<YOUR_FRONTEND_URL>/api
+   VITE_API_BASE_URL=<YOUR_BACKEND_URL>/api
    ```
 4. **Start the Frontend development server**:
    ```bash
@@ -241,12 +245,11 @@ To activate your initial Administrator account:
 | `POST` | `/api/courses/:id/assign` | Assign a user to a course with role | Admin, Exam Team, Teacher |
 | `DELETE`| `/api/courses/:id/assign/:userId` | Remove a user assignment from a course | Admin, Exam Team, Teacher |
 
-### 📊 Standalone Calculations & Export (`/api`)
+### 📊 Excel Export
 
-| Method | Endpoint | Description | Request Body |
+| Method | Endpoint | Description | Access Level |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/calculate` | Compute attainment percentages and levels per CO | `{ students, coMaxMarks, thresholdPercent, levelCriteria }` |
-| `POST` | `/api/export-excel` | Generate a styled Excel workbook with live formulas | `{ students, coMaxMarks, results, levelCriteria, thresholdPercent, courseInfo }` |
+| `GET` | `/api/courses/:id/export-excel` | Generate a 2-sheet styled Excel workbook (Course Attainment, CO-PO Attainment) with live formulas | Assigned / Admin |
 
 ---
 
@@ -268,8 +271,9 @@ Direct Course Outcome Attainment combines the Internal (MTT) and External (ETT) 
 $$\text{Final Attainment}_{CO_i} = \left(\text{Internal Level}_{CO_i} \times \frac{\text{Internal Weight}}{100}\right) + \left(\text{External Level}_{CO_i} \times \frac{\text{External Weight}}{100}\right)$$
 
 ### 4. Direct Program Outcome (PO) Attainment
-PO and PSO attainment is computed by projecting each CO's attainment level onto the articulation matrix:
-$$\text{Attainment}_{PO_j} = \frac{\sum_{i=1}^{n} \left(\text{Final Attainment}_{CO_i} \times \text{Mapping}_{CO_i, PO_j}\right)}{\sum_{i=1}^{n} \text{Mapping}_{CO_i, PO_j}}$$
+The implementation (`Backend/utils/attainmentCalculator.js`) uses a simpler formula than a full per-CO weighted sum: it multiplies the **overall course attainment** (the single combined CO score from step 3, averaged across all COs) by the **average CO→PO correlation** for that PO column (computed and stored server-side whenever the articulation matrix is saved):
+$$\text{Attainment}_{PO_j} = \text{AvgCorrelation}_{PO_j} \times \text{OverallCourseAttainment}, \quad \text{where } \text{AvgCorrelation}_{PO_j} = \frac{\sum_{i=1}^{n} \text{Mapping}_{CO_i, PO_j}}{\text{count of non-zero mappings for } PO_j}$$
+This means every PO/PSO attainment value for a given course shares the same underlying course-attainment score, scaled only by that PO's average articulation strength — it is **not** a per-CO weighted contribution formula. If your institution's OBE methodology requires the full per-CO weighted-sum formula, this is a known simplification to revisit before using the numbers for accreditation submission — see [docs/calculation-methodology.md](docs/calculation-methodology.md).
 
 ---
 
@@ -287,6 +291,12 @@ The smart parser automatically maps incoming spreadsheets by scanning header nam
 
 * **Password Security**: Passwords are encrypted using `bcryptjs` with 10 salt rounds.
 * **Privacy Assurance**: Sensitive user attributes (e.g. password hashes) are never embedded into JWT tokens or sent to client state.
-* **Input Validation**: Request bodies are validated using `express-validator` to enforce schema constraints.
-* **Fine-Grained Route Guards**: SQL ownership and assignment checks prevent unauthorized cross-tenant data access.
+* **Input Validation**: Request bodies are validated using `express-validator` to enforce schema constraints; SQL column identifiers built from client input (CO-PO mapping / config saves) are restricted to an explicit server-side whitelist.
+* **Fine-Grained Route Guards**: Every course-scoped route requires both authentication (`protect`) and ownership/assignment verification (`checkCoursePermission`) — enforced server-side, not just hidden in the UI.
+* **Rate Limiting**: `/api/auth/login` and `/api/auth/signup` are throttled (20 requests / 15 min / IP) to slow brute-force attempts.
+* **Security Headers**: `helmet` is applied to every response; CORS is restricted to an explicit allowlist (`CLIENT_URL`, comma-separated for multiple origins) rather than reflecting any origin.
+* **Fail-Fast Secrets**: The server refuses to start if `JWT_SECRET` is unset — there is no insecure default fallback.
+* **Sanitized Errors**: Unexpected server errors (including raw database driver messages) are logged in full server-side but never echoed to the client verbatim.
+
+See [Backend/.env.example](Backend/.env.example) for every required environment variable.
 

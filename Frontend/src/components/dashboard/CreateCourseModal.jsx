@@ -1,5 +1,9 @@
-import React from 'react';
 import { Loader2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+
+const fieldClass =
+  'w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground transition focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
+const labelClass = 'mb-1 block text-xs font-bold uppercase tracking-wider text-muted-foreground';
 
 export default function CreateCourseModal({
   show,
@@ -8,25 +12,19 @@ export default function CreateCourseModal({
   creating,
   academicStructure,
   handleChange,
-  handleSubmit
+  handleSubmit,
 }) {
-  if (!show) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700/70 rounded-2xl shadow-2xl p-6 relative animate-in fade-in zoom-in duration-200">
-        <h3 className="text-xl font-bold tracking-wide text-slate-100 mb-6">Create New Course</h3>
-        
+    <Dialog open={show} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Create New Course</DialogTitle>
+        </DialogHeader>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">School *</label>
-            <select
-              name="school"
-              required
-              value={formData.school}
-              onChange={handleChange}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-200 focus:border-blue-500 focus:outline-none text-sm transition"
-            >
+            <label className={labelClass}>School *</label>
+            <select name="school" required value={formData.school} onChange={handleChange} className={fieldClass}>
               <option value="">Select School</option>
               {Object.keys(academicStructure).map((school) => (
                 <option key={school} value={school}>{school}</option>
@@ -35,14 +33,14 @@ export default function CreateCourseModal({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Department *</label>
+            <label className={labelClass}>Department *</label>
             <select
               name="department"
               required
               disabled={!formData.school}
               value={formData.department}
               onChange={handleChange}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-200 focus:border-blue-500 focus:outline-none text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className={fieldClass}
             >
               <option value="">Select Department</option>
               {formData.school &&
@@ -54,7 +52,7 @@ export default function CreateCourseModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Subject Name *</label>
+              <label className={labelClass}>Subject Name *</label>
               <input
                 type="text"
                 name="subjectName"
@@ -62,12 +60,12 @@ export default function CreateCourseModal({
                 placeholder="e.g. Data Structures"
                 value={formData.subjectName}
                 onChange={handleChange}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-200 focus:border-blue-500 focus:outline-none text-sm transition"
+                className={fieldClass}
               />
             </div>
-            
+
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Course Code *</label>
+              <label className={labelClass}>Course Code *</label>
               <input
                 type="text"
                 name="courseCode"
@@ -75,20 +73,15 @@ export default function CreateCourseModal({
                 placeholder="e.g. CS201"
                 value={formData.courseCode}
                 onChange={handleChange}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-200 focus:border-blue-500 focus:outline-none text-sm transition"
+                className={fieldClass}
               />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Semester *</label>
-              <select
-                name="semester"
-                value={formData.semester}
-                onChange={handleChange}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-200 focus:border-blue-500 focus:outline-none text-sm transition"
-              >
+              <label className={labelClass}>Semester *</label>
+              <select name="semester" value={formData.semester} onChange={handleChange} className={fieldClass}>
                 {Array.from({ length: 8 }, (_, i) => i + 1).map((sem) => (
                   <option key={sem} value={sem}>Sem {sem}</option>
                 ))}
@@ -96,7 +89,7 @@ export default function CreateCourseModal({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Academic Year *</label>
+              <label className={labelClass}>Academic Year *</label>
               <input
                 type="text"
                 name="academicYear"
@@ -104,18 +97,13 @@ export default function CreateCourseModal({
                 placeholder="e.g. 2025-2026"
                 value={formData.academicYear}
                 onChange={handleChange}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-200 focus:border-blue-500 focus:outline-none text-sm transition"
+                className={fieldClass}
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Number of COs *</label>
-              <select
-                name="numCos"
-                value={formData.numCos}
-                onChange={handleChange}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-200 focus:border-blue-500 focus:outline-none text-sm transition"
-              >
+              <label className={labelClass}>Number of COs *</label>
+              <select name="numCos" value={formData.numCos} onChange={handleChange} className={fieldClass}>
                 <option value="4">4 COs</option>
                 <option value="5">5 COs</option>
                 <option value="6">6 COs</option>
@@ -123,25 +111,25 @@ export default function CreateCourseModal({
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50 mt-6">
+          <div className="mt-6 flex justify-end gap-3 border-t border-border pt-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-slate-700 hover:bg-slate-800 font-semibold text-sm transition text-slate-300 hover:text-white"
+              className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-secondary hover:text-foreground"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={creating}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-sm shadow-md transition disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-md transition hover:bg-primary-hover disabled:opacity-50"
             >
               {creating && <Loader2 className="h-4 w-4 animate-spin" />}
               Create Course
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

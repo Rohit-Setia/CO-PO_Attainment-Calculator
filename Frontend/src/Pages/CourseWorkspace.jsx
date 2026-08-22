@@ -1,18 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  fetchCourseConfig, saveCourseConfig, 
+import { toast } from 'sonner';
+import {
+  fetchCourseConfig, saveCourseConfig,
   fetchCourseMapping, saveCourseMapping,
   fetchCourseMarks, saveCourseMarks,
   fetchCourseAttainment, downloadCourseExcel,
   exportCourseJson
 } from '../Api/AttainmentApi';
-import { 
-  ArrowLeft, Sliders, Grid, Users, TrendingUp, Download, 
-  Loader2, CheckCircle2, ShieldAlert, Share2
+import {
+  Sliders, Grid, Users, TrendingUp, Download,
+  Loader2, CheckCircle2, Share2, AlertTriangle, X,
 } from 'lucide-react';
 import { parseExcel } from '../utils/excelParser';
 import { useAuth } from '../context/AuthContext';
+
+import AppHeader from '../components/layout/AppHeader';
+import ErrorState from '../components/ui/ErrorState';
+import { Skeleton } from '../components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import PageTransition from '../components/ui/PageTransition';
 
 // Import Modular Components
 import ConfigTab from '../components/workspace/ConfigTab';
@@ -44,6 +51,7 @@ export default function CourseWorkspace() {
   const [questions, setQuestions] = useState([]);
   const [numQuestionsInput, setNumQuestionsInput] = useState('5');
   const [students, setStudents] = useState([]);
+  const [importIssues, setImportIssues] = useState([]);
 
   const loadAllData = async () => {
     setLoading(true);
@@ -75,6 +83,7 @@ export default function CourseWorkspace() {
 
   useEffect(() => {
     loadAllData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally reload only when the course id changes
   }, [id]);
 
   // Sync questions config when exam type or config changes
@@ -97,7 +106,7 @@ export default function CourseWorkspace() {
           setQuestions(defaultQs);
           setNumQuestionsInput('5');
         }
-      } catch (e) {
+      } catch {
         setQuestions(defaultQs);
         setNumQuestionsInput('5');
       }
@@ -173,6 +182,7 @@ export default function CourseWorkspace() {
       setStatus('Configuration and CO descriptions saved successfully!');
       await triggerAttainmentCalculation();
     } catch (err) {
+      console.error('Failed to save configurations:', err);
       setStatus('Failed to save configurations.');
     } finally {
       setSaving(false);
@@ -209,6 +219,7 @@ export default function CourseWorkspace() {
       setMapping(mappingRes.data.data || {});
       await triggerAttainmentCalculation();
     } catch (err) {
+      console.error('Failed to save mapping matrix:', err);
       setStatus('Failed to save mapping matrix.');
     } finally {
       setSaving(false);
@@ -334,6 +345,7 @@ export default function CourseWorkspace() {
 
       const coMaxNote = entryMode === 'question' ? ' · CO max marks auto-synced from question config.' : '';
       setStatus(`✅ Saved ${activeExamType} marks successfully.${coMaxNote}`);
+      setImportIssues([]);
 
       // Update local marks cache
       setMarks(prev => ({
@@ -410,7 +422,8 @@ export default function CourseWorkspace() {
         setStatus(`✅ Loaded ${mapped.length} students from Excel.`);
       },
       (msg) => setStatus(msg),
-      entryMode === 'question' ? questions : null
+      entryMode === 'question' ? questions : null,
+      setImportIssues
     );
   };
 
@@ -432,7 +445,7 @@ export default function CourseWorkspace() {
       setStatus('✅ Course snapshot exported. Share the .json file with another teacher to let them import it.');
     } catch (err) {
       console.error(err);
-      alert('Failed to export course data.');
+      toast.error('Failed to export course data.');
     }
   };
 
@@ -448,7 +461,8 @@ export default function CourseWorkspace() {
       link.remove();
       setStatus('Excel report downloaded successfully!');
     } catch (err) {
-      alert('Failed to download Excel report.');
+      console.error('Failed to download Excel report:', err);
+      toast.error('Failed to download Excel report.');
     }
   };
 
@@ -482,21 +496,31 @@ export default function CourseWorkspace() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-3 text-white">
-        <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
-        <p className="text-slate-400 text-sm">Loading course workspace...</p>
+      <div className="min-h-screen bg-background">
+        <div className="flex items-center gap-3 border-b border-border px-6 py-4">
+          <Skeleton className="h-10 w-10 rounded-xl" />
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-56" />
+          </div>
+        </div>
+        <div className="max-w-6xl mx-auto px-6 py-10 space-y-6">
+          <Skeleton className="h-10 w-72" />
+          <Skeleton className="h-64 w-full rounded-2xl" />
+        </div>
       </div>
     );
   }
 
   if (error || !course) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-4 text-white px-4">
-        <ShieldAlert className="h-16 w-16 text-red-500" />
-        <p className="text-lg text-slate-300 font-bold">{error || 'Course not found.'}</p>
-        <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700/80 transition text-sm">
-          <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-        </button>
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <div className="w-full max-w-md">
+          <ErrorState
+            title={error || 'Course not found.'}
+            onRetry={() => navigate('/dashboard')}
+          />
+        </div>
       </div>
     );
   }
@@ -512,165 +536,149 @@ export default function CourseWorkspace() {
     }
   }
 
+  const headerTitle = (
+    <span className="flex items-center gap-2">
+      {course.subject_name}
+      <span className="rounded bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+        {course.course_code}
+      </span>
+    </span>
+  );
+  const headerSubtitle = `${course.school} • ${course.department} • Sem ${course.semester} (${course.academic_year})`;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white font-sans antialiased">
-      {/* Top Banner Header */}
-      <header className="sticky top-0 z-10 backdrop-blur-md bg-slate-900/60 border-b border-slate-700/50 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => navigate('/dashboard')}
-            className="p-2 rounded-lg border border-slate-700 hover:bg-slate-800/80 text-slate-400 hover:text-white transition duration-200"
-            title="Back to Dashboard"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold tracking-tight text-slate-100">{course.subject_name}</h2>
-              <span className="text-[10px] uppercase font-bold tracking-wider text-blue-400 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
-                {course.course_code}
-              </span>
+    <div className="min-h-screen bg-background">
+      <AppHeader
+        backTo="/dashboard"
+        title={headerTitle}
+        subtitle={headerSubtitle}
+        actions={
+          <>
+            <button
+              onClick={handleExportJson}
+              title="Export all course data (configs, mapping, marks) as a JSON file to share with another teacher"
+              className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-secondary"
+            >
+              <Share2 className="h-4 w-4" /> Export
+            </button>
+            <button
+              onClick={handleExportExcel}
+              className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary-hover"
+            >
+              <Download className="h-4 w-4" /> Report
+            </button>
+          </>
+        }
+      />
+
+      <PageTransition>
+        <div className="max-w-6xl mx-auto px-6 py-8">
+          {/* View Only Mode Banner for Viewers */}
+          {isReadOnly && (
+            <div className="mb-6 flex items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span><span className="font-bold">View Only Mode:</span> You have read-only access to this course. You can inspect mappings, student marks, calculate attainments, and export reports, but cannot modify records.</span>
             </div>
-            <p className="text-xs text-slate-400">{course.school} &bull; {course.department} &bull; Sem {course.semester} ({course.academic_year})</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleExportJson}
-            title="Export all course data (configs, mapping, marks) as a JSON file to share with another teacher"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-800/40 hover:bg-slate-700/60 text-slate-300 text-sm font-medium transition duration-200"
-          >
-            <Share2 className="h-4 w-4" /> Export Course
-          </button>
-          <button
-            onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-semibold shadow-lg shadow-emerald-600/25 transition duration-300 transform hover:-translate-y-0.5"
-          >
-            <Download className="h-4 w-4" /> Download Report
-          </button>
-        </div>
-      </header>
-
-      {/* Main Workspace Workspace */}
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        {/* View Only Mode Banner for Viewers */}
-        {isReadOnly && (
-          <div className="mb-6 flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-amber-200 text-sm">
-            <span className="font-bold text-amber-400">👁 View Only Mode:</span>
-            <span>You have read-only access to this course. You can inspect mappings, student marks, calculate attainments, and export reports, but cannot modify records.</span>
-          </div>
-        )}
-
-        {status && (
-          <div className="mb-6 flex items-center gap-2 bg-blue-500/10 border border-blue-500/25 rounded-xl p-4 text-blue-200 text-sm">
-            <CheckCircle2 className="h-5 w-5 text-blue-400 shrink-0" />
-            <p>{status}</p>
-          </div>
-        )}
-
-        {/* Tab Controls */}
-        <div className="flex border-b border-slate-700/60 mb-8 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('config')}
-            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-medium text-sm transition shrink-0 ${
-              activeTab === 'config' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Sliders className="h-4 w-4" /> Setup & Configs
-          </button>
-
-          <button
-            onClick={() => setActiveTab('mapping')}
-            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-medium text-sm transition shrink-0 ${
-              activeTab === 'mapping' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Grid className="h-4 w-4" /> Articulation Matrix
-          </button>
-
-          <button
-            onClick={() => setActiveTab('marks')}
-            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-medium text-sm transition shrink-0 ${
-              activeTab === 'marks' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Users className="h-4 w-4" /> Marks Entry
-          </button>
-
-          <button
-            onClick={() => setActiveTab('attainment')}
-            className={`flex items-center gap-2 px-6 py-3 border-b-2 font-medium text-sm transition shrink-0 ${
-              activeTab === 'attainment' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <TrendingUp className="h-4 w-4" /> Attainment & Charts
-          </button>
-        </div>
-
-        {/* Tab Components */}
-        <div className="space-y-6">
-          {activeTab === 'config' && (
-            <ConfigTab
-              config={config}
-              coDescriptions={coDescriptions}
-              course={course}
-              saving={saving}
-              handleConfigChange={handleConfigChange}
-              handleCoDescChange={handleCoDescChange}
-              saveConfigAndCos={saveConfigAndCos}
-              readOnly={isReadOnly}
-            />
           )}
 
-          {activeTab === 'mapping' && (
-            <MappingTab
-              course={course}
-              mapping={mapping}
-              saving={saving}
-              handleMappingChange={handleMappingChange}
-              getColAvg={getColAvg}
-              saveMappingMatrix={saveMappingMatrix}
-              readOnly={isReadOnly}
-            />
+          {status && (
+            <div className="mb-6 flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/10 p-4 text-sm text-primary">
+              <CheckCircle2 className="h-5 w-5 shrink-0" />
+              <p>{status}</p>
+            </div>
           )}
 
-          {activeTab === 'marks' && (
-            <MarksTab
-              course={course}
-              coMax={coMax}
-              numCos={course.num_cos}
-              students={students}
-              setStudents={setStudents}
-              activeExamType={activeExamType}
-              setActiveExamType={setActiveExamType}
-              entryMode={entryMode}
-              setEntryMode={setEntryMode}
-              questions={questions}
-              setQuestions={setQuestions}
-              numQuestionsInput={numQuestionsInput}
-              setNumQuestionsInput={setNumQuestionsInput}
-              handleExcelUpload={handleExcelUpload}
-              saving={saving}
-              saveMarksList={saveMarksList}
-              updateMark={updateMark}
-              updateQuestionConfig={updateQuestionConfig}
-              updateStudentInfo={updateStudentInfo}
-              removeStudent={removeStudent}
-              addStudentRow={addStudentRow}
-              readOnly={isReadOnly}
-            />
+          {importIssues.length > 0 && (
+            <div className="mb-6 rounded-xl border border-warning/30 bg-warning/10 p-4 text-warning">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">
+                  {importIssues.length} issue{importIssues.length > 1 ? 's' : ''} found in the imported Excel file — review before saving
+                </p>
+                <button
+                  onClick={() => setImportIssues([])}
+                  className="shrink-0 text-warning/80 transition hover:text-warning"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <ul className="max-h-40 list-inside list-disc space-y-1 overflow-y-auto text-xs text-warning/90">
+                {importIssues.slice(0, 50).map((issue, idx) => (
+                  <li key={idx}>{issue}</li>
+                ))}
+                {importIssues.length > 50 && <li>...and {importIssues.length - 50} more.</li>}
+              </ul>
+            </div>
           )}
 
-          {activeTab === 'attainment' && (
-            <AttainmentTab
-              attainment={attainment}
-              getCOBarChartData={getCOBarChartData}
-              getPORadarChartData={getPORadarChartData}
-            />
-          )}
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="mb-8">
+              <TabsTrigger value="config"><Sliders className="h-4 w-4" /> Setup & Configs</TabsTrigger>
+              <TabsTrigger value="mapping"><Grid className="h-4 w-4" /> Articulation Matrix</TabsTrigger>
+              <TabsTrigger value="marks"><Users className="h-4 w-4" /> Marks Entry</TabsTrigger>
+              <TabsTrigger value="attainment"><TrendingUp className="h-4 w-4" /> Attainment & Charts</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="config">
+              <ConfigTab
+                config={config}
+                coDescriptions={coDescriptions}
+                course={course}
+                saving={saving}
+                handleConfigChange={handleConfigChange}
+                handleCoDescChange={handleCoDescChange}
+                saveConfigAndCos={saveConfigAndCos}
+                readOnly={isReadOnly}
+              />
+            </TabsContent>
+
+            <TabsContent value="mapping">
+              <MappingTab
+                course={course}
+                mapping={mapping}
+                saving={saving}
+                handleMappingChange={handleMappingChange}
+                getColAvg={getColAvg}
+                saveMappingMatrix={saveMappingMatrix}
+                readOnly={isReadOnly}
+              />
+            </TabsContent>
+
+            <TabsContent value="marks">
+              <MarksTab
+                coMax={coMax}
+                numCos={course.num_cos}
+                students={students}
+                activeExamType={activeExamType}
+                setActiveExamType={setActiveExamType}
+                entryMode={entryMode}
+                setEntryMode={setEntryMode}
+                questions={questions}
+                setQuestions={setQuestions}
+                numQuestionsInput={numQuestionsInput}
+                setNumQuestionsInput={setNumQuestionsInput}
+                handleExcelUpload={handleExcelUpload}
+                saving={saving}
+                saveMarksList={saveMarksList}
+                updateMark={updateMark}
+                updateQuestionConfig={updateQuestionConfig}
+                updateStudentInfo={updateStudentInfo}
+                removeStudent={removeStudent}
+                addStudentRow={addStudentRow}
+                readOnly={isReadOnly}
+              />
+            </TabsContent>
+
+            <TabsContent value="attainment">
+              <AttainmentTab
+                attainment={attainment}
+                getCOBarChartData={getCOBarChartData}
+                getPORadarChartData={getPORadarChartData}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
-      </div>
+      </PageTransition>
     </div>
   );
 }

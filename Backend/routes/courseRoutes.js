@@ -34,27 +34,47 @@ router.get('/courses', protect, async (req, res, next) => {
     // getCoursesByTeacher is now role-aware: Admin/Exam Team see all, others see own/assigned
     const courses = await getCoursesByTeacher(req.user.id, req.user.role);
 
-    const enriched = await Promise.all(courses.map(async (course) => {
-      const [mappingRows] = await pool.query('SELECT COUNT(*) as count FROM co_po_mappings WHERE course_id = ?', [course.id]);
-      const [mttRows] = await pool.query('SELECT COUNT(*) as count FROM student_marks WHERE course_id = ? AND exam_type = "MTT"', [course.id]);
-      const [ettRows] = await pool.query('SELECT COUNT(*) as count FROM student_marks WHERE course_id = ? AND exam_type = "ETT"', [course.id]);
-      
-      let isMappingConfigured = false;
-      if (mappingRows[0].count > 0) {
-        const [mappingData] = await pool.query('SELECT * FROM co_po_mappings WHERE course_id = ?', [course.id]);
-        const m = mappingData[0];
-        if (m) {
-          isMappingConfigured = Object.keys(m).some(k => k.startsWith('co') && m[k] > 0);
-        }
-      }
+    if (courses.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
 
+    // Batch-fetch mapping/marks status for all courses in 2 queries total instead of
+    // up to 4 queries per course (was an N+1 pattern that scaled linearly with course count).
+    const courseIds = courses.map((c) => c.id);
+    const placeholders = courseIds.map(() => '?').join(', ');
+
+    const [mappingRows] = await pool.query(
+      `SELECT * FROM co_po_mappings WHERE course_id IN (${placeholders})`,
+      courseIds,
+    );
+    const [markCountRows] = await pool.query(
+      `SELECT course_id, exam_type, COUNT(*) as count FROM student_marks
+       WHERE course_id IN (${placeholders}) GROUP BY course_id, exam_type`,
+      courseIds,
+    );
+
+    const mappingConfiguredByCourseId = new Map();
+    mappingRows.forEach((m) => {
+      const isConfigured = Object.keys(m).some((k) => k.startsWith('co') && m[k] > 0);
+      mappingConfiguredByCourseId.set(m.course_id, isConfigured);
+    });
+
+    const marksByCourseId = new Map();
+    markCountRows.forEach((row) => {
+      const entry = marksByCourseId.get(row.course_id) || { MTT: 0, ETT: 0 };
+      entry[row.exam_type] = row.count;
+      marksByCourseId.set(row.course_id, entry);
+    });
+
+    const enriched = courses.map((course) => {
+      const marks = marksByCourseId.get(course.id) || { MTT: 0, ETT: 0 };
       return {
         ...course,
-        hasMapping: isMappingConfigured,
-        hasInternalMarks: mttRows[0].count > 0,
-        hasExternalMarks: ettRows[0].count > 0,
+        hasMapping: mappingConfiguredByCourseId.get(course.id) || false,
+        hasInternalMarks: marks.MTT > 0,
+        hasExternalMarks: marks.ETT > 0,
       };
-    }));
+    });
 
     res.json({ success: true, data: enriched });
   } catch (err) {
