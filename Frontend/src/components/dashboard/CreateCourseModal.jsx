@@ -102,12 +102,13 @@ export default function CreateCourseModal({
             </div>
 
             <div>
-              <label className={labelClass}>Number of COs *</label>
+              <label className={labelClass}>Starting Number of COs *</label>
               <select name="numCos" value={formData.numCos} onChange={handleChange} className={fieldClass}>
-                <option value="4">4 COs</option>
-                <option value="5">5 COs</option>
-                <option value="6">6 COs</option>
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>{n} CO{n > 1 ? 's' : ''}</option>
+                ))}
               </select>
+              <p className="mt-1 text-[10px] text-muted-foreground">You can add or archive Course Outcomes any time from the course workspace.</p>
             </div>
           </div>
 

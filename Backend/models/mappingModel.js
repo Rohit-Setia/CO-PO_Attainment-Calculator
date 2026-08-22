@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { getActiveOutcomes } = require('./courseOutcomeModel');
 
 const createMappingTables = async () => {
   // 1. Drop conflicting legacy table if it has subject_id/co_id structure
@@ -155,10 +156,113 @@ const saveConfig = async (courseId, configData) => {
   await pool.query(query, values);
 };
 
+// ── Normalized CO-PO mapping (dynamic CO count) ──────────────────────────────
+// One row per course_outcome instead of one giant per-course row with co1_po1..co6_pso3
+// columns — this is what actually makes CO-PO mapping work past CO6. PO/PSO stay fixed-width
+// (12 + 3 columns) since only the CO dimension needed to become dynamic.
+
+const PO_PSO_COLUMNS = [
+  ...Array.from({ length: 12 }, (_, i) => `po${i + 1}`),
+  ...Array.from({ length: 3 }, (_, i) => `pso${i + 1}`),
+];
+const ALLOWED_CO_PO_VALUE_COLUMNS = new Set(PO_PSO_COLUMNS);
+
+const createCoPoValueTable = async () => {
+  const columns = PO_PSO_COLUMNS.map((c) => `${c} INT DEFAULT 0`).join(',\n      ');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS co_po_values (
+      co_id INT PRIMARY KEY,
+      ${columns},
+      FOREIGN KEY (co_id) REFERENCES course_outcomes(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB;
+  `);
+};
+
+// One-time, idempotent: copies each course's legacy co_po_mappings row (co1_po1..co6_pso3
+// columns) into one co_po_values row per course_outcome. Requires course outcomes to already
+// be migrated. Skipped per-CO if it already has a co_po_values row.
+const migrateLegacyMappingToCoPoValues = async () => {
+  const [courses] = await pool.query('SELECT id FROM courses');
+
+  for (const course of courses) {
+    const outcomes = await getActiveOutcomes(course.id);
+    if (outcomes.length === 0) continue;
+
+    const [legacyRows] = await pool.query('SELECT * FROM co_po_mappings WHERE course_id = ?', [course.id]);
+    const legacy = legacyRows[0];
+    if (!legacy) continue;
+
+    for (const outcome of outcomes) {
+      const [existing] = await pool.query('SELECT co_id FROM co_po_values WHERE co_id = ?', [outcome.id]);
+      if (existing.length > 0) continue; // already migrated
+
+      const values = {};
+      PO_PSO_COLUMNS.forEach((col) => {
+        values[col] = legacy[`co${outcome.co_number}_${col}`] ?? 0;
+      });
+      const cols = Object.keys(values);
+      await pool.query(
+        `INSERT INTO co_po_values (co_id, ${cols.join(', ')}) VALUES (?, ${cols.map(() => '?').join(', ')})`,
+        [outcome.id, ...cols.map((c) => values[c])],
+      );
+    }
+  }
+};
+
+// Returns one row per active CO: { co_id, co_number, description, po1..po12, pso1..pso3 }
+const getCoPoValuesForCourse = async (courseId) => {
+  const [rows] = await pool.query(
+    `SELECT co.id as co_id, co.co_number, co.description, cpv.*
+     FROM course_outcomes co
+     LEFT JOIN co_po_values cpv ON cpv.co_id = co.id
+     WHERE co.course_id = ? AND co.is_active = 1
+     ORDER BY co.co_number ASC`,
+    [courseId],
+  );
+  return rows.map((row) => {
+    const clean = { co_id: row.co_id, co_number: row.co_number, description: row.description };
+    PO_PSO_COLUMNS.forEach((col) => { clean[col] = row[col] ?? 0; });
+    return clean;
+  });
+};
+
+// Column-level average across every active CO for each PO/PSO — computed live instead of
+// stored, so it can never go stale relative to the actual per-CO values.
+const getCoPoAveragesForCourse = async (courseId) => {
+  const rows = await getCoPoValuesForCourse(courseId);
+  const averages = {};
+  PO_PSO_COLUMNS.forEach((col) => {
+    const nonZero = rows.map((r) => r[col]).filter((v) => v > 0);
+    averages[`avg_${col}`] = nonZero.length > 0
+      ? parseFloat((nonZero.reduce((a, b) => a + b, 0) / nonZero.length).toFixed(2))
+      : 0;
+  });
+  return averages;
+};
+
+const saveCoPoValue = async (coId, valuesData) => {
+  const keys = Object.keys(valuesData).filter((k) => ALLOWED_CO_PO_VALUE_COLUMNS.has(k));
+  if (keys.length === 0) return;
+
+  const placeholders = keys.map(() => '?');
+  const updateAssignments = keys.map((k) => `${k} = VALUES(${k})`);
+  const query = `
+    INSERT INTO co_po_values (co_id, ${keys.join(', ')})
+    VALUES (?, ${placeholders.join(', ')})
+    ON DUPLICATE KEY UPDATE ${updateAssignments.join(', ')}
+  `;
+  await pool.query(query, [coId, ...keys.map((k) => valuesData[k])]);
+};
+
 module.exports = {
   createMappingTables,
   getMapping,
   saveMapping,
   getConfig,
   saveConfig,
+  createCoPoValueTable,
+  migrateLegacyMappingToCoPoValues,
+  getCoPoValuesForCourse,
+  getCoPoAveragesForCourse,
+  saveCoPoValue,
 };

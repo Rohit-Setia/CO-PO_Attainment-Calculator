@@ -7,26 +7,69 @@ const {
   getCoursesByTeacher,
   getCourseById,
   deleteCourse,
-  getCoDescriptions,
-  saveCoDescriptions,
   assignUserToCourse,
   removeUserFromCourse,
   getAssignmentsForCourse,
 } = require('../models/courseModel');
 const {
-  getMapping,
-  saveMapping,
   getConfig,
   saveConfig,
+  getCoPoValuesForCourse,
+  getCoPoAveragesForCourse,
+  saveCoPoValue,
 } = require('../models/mappingModel');
 const {
-  getMarksByCourse,
+  getCoMarksForCourse,
+  getQuestionMarksForCourse,
   saveStudentMark,
+  saveStudentCoMarks,
+  saveStudentQuestionMarks,
   deleteMarksByCourse,
 } = require('../models/marksModel');
+const {
+  MAX_COS_PER_COURSE,
+  getActiveOutcomes,
+  getOutcomeById,
+  addCourseOutcome,
+  updateCourseOutcome,
+  archiveCourseOutcome,
+} = require('../models/courseOutcomeModel');
+const {
+  MAX_QUESTIONS_PER_EXAM,
+  getQuestionConfigs,
+  replaceQuestionConfigs,
+} = require('../models/questionConfigModel');
 const { calculateCourseAttainment } = require('../utils/attainmentCalculator');
 const pool = require('../config/db');
 const { findUserByEmail } = require('../models/userModel');
+
+const DEFAULT_CONFIG = {
+  threshold_percent_internal: 40.0,
+  threshold_percent_external: 40.0,
+  level1_criteria_internal: 50.0,
+  level2_criteria_internal: 60.0,
+  level3_criteria_internal: 70.0,
+  level1_criteria_external: 50.0,
+  level2_criteria_external: 60.0,
+  level3_criteria_external: 70.0,
+  total_max_internal: 60,
+  total_max_external: 100,
+  internal_weight: 30.0,
+  external_weight: 70.0,
+};
+
+// Loads the course and its active outcomes, 404ing consistently if either the course doesn't
+// exist/isn't accessible, or an outcome id in the URL doesn't belong to it (prevents an
+// authenticated user on one course from touching another course's CO/question/mapping rows by
+// guessing ids).
+async function loadCourseOr404(req, res) {
+  const course = await getCourseById(req.params.id, req.user.id, req.user.role);
+  if (!course) {
+    res.status(404).json({ success: false, message: 'Course not found' });
+    return null;
+  }
+  return course;
+}
 
 // 1. Course CRUD
 router.get('/courses', protect, async (req, res, next) => {
@@ -38,13 +81,18 @@ router.get('/courses', protect, async (req, res, next) => {
       return res.json({ success: true, data: [] });
     }
 
-    // Batch-fetch mapping/marks status for all courses in 2 queries total instead of
-    // up to 4 queries per course (was an N+1 pattern that scaled linearly with course count).
     const courseIds = courses.map((c) => c.id);
     const placeholders = courseIds.map(() => '?').join(', ');
 
-    const [mappingRows] = await pool.query(
-      `SELECT * FROM co_po_mappings WHERE course_id IN (${placeholders})`,
+    const [outcomeCountRows] = await pool.query(
+      `SELECT course_id, COUNT(*) as count FROM course_outcomes WHERE course_id IN (${placeholders}) AND is_active = 1 GROUP BY course_id`,
+      courseIds,
+    );
+    const [mappingConfiguredRows] = await pool.query(
+      `SELECT co.course_id, MAX(cpv.po1) as anyMapped FROM course_outcomes co
+       LEFT JOIN co_po_values cpv ON cpv.co_id = co.id
+       WHERE co.course_id IN (${placeholders}) AND co.is_active = 1
+       GROUP BY co.course_id`,
       courseIds,
     );
     const [markCountRows] = await pool.query(
@@ -53,11 +101,15 @@ router.get('/courses', protect, async (req, res, next) => {
       courseIds,
     );
 
+    const coCountByCourseId = new Map(outcomeCountRows.map((r) => [r.course_id, r.count]));
+
+    // "Has a mapping configured" = at least one non-zero PO/PSO value anywhere for the course.
+    // The single-column MAX(po1) check above is a cheap first pass; fall back to a full scan
+    // only for courses where it didn't already find something (rare, cheap given course counts).
     const mappingConfiguredByCourseId = new Map();
-    mappingRows.forEach((m) => {
-      const isConfigured = Object.keys(m).some((k) => k.startsWith('co') && m[k] > 0);
-      mappingConfiguredByCourseId.set(m.course_id, isConfigured);
-    });
+    for (const row of mappingConfiguredRows) {
+      mappingConfiguredByCourseId.set(row.course_id, (row.anyMapped || 0) > 0);
+    }
 
     const marksByCourseId = new Map();
     markCountRows.forEach((row) => {
@@ -70,6 +122,7 @@ router.get('/courses', protect, async (req, res, next) => {
       const marks = marksByCourseId.get(course.id) || { MTT: 0, ETT: 0 };
       return {
         ...course,
+        num_cos: coCountByCourseId.get(course.id) || 0,
         hasMapping: mappingConfiguredByCourseId.get(course.id) || false,
         hasInternalMarks: marks.MTT > 0,
         hasExternalMarks: marks.ETT > 0,
@@ -97,38 +150,15 @@ router.post('/courses', protect, authorizeRoles('Admin', 'Examination Team', 'Te
       numCos: numCos || 5,
     });
 
-    const defaultConfig = {
-      threshold_percent_internal: 40.0,
-      threshold_percent_external: 40.0,
-      level1_criteria_internal: 50.0,
-      level2_criteria_internal: 60.0,
-      level3_criteria_internal: 70.0,
-      level1_criteria_external: 50.0,
-      level2_criteria_external: 60.0,
-      level3_criteria_external: 70.0,
-      total_max_internal: 60,
-      total_max_external: 100,
-      internal_weight: 30.0,
-      external_weight: 70.0,
-    };
-    for (let co = 1; co <= 6; co++) {
-      defaultConfig[`co${co}_max_internal`] = co <= 3 ? 10 : 15;
-      defaultConfig[`co${co}_max_external`] = 100;
-    }
-    await saveConfig(courseId, defaultConfig);
+    await saveConfig(courseId, DEFAULT_CONFIG);
 
-    const defaultDescriptions = Array.from({ length: numCos || 5 }, (_, i) => ({
-      co_number: i + 1,
-      description: `Course Outcome ${i + 1}`,
-    }));
-    await saveCoDescriptions(courseId, defaultDescriptions);
-
-    const defaultMapping = {};
-    for (let co = 1; co <= 6; co++) {
-      for (let po = 1; po <= 12; po++) defaultMapping[`co${co}_po${po}`] = 0;
-      for (let pso = 1; pso <= 3; pso++) defaultMapping[`co${co}_pso${pso}`] = 0;
+    // Seed the requested number of Course Outcomes as real, individually-numbered rows —
+    // not a fixed-width column set. The teacher can add/archive from here at any time.
+    const initialCoCount = Math.min(numCos || 5, MAX_COS_PER_COURSE);
+    for (let i = 0; i < initialCoCount; i += 1) {
+      // eslint-disable-next-line no-await-in-loop -- co_number must be assigned sequentially
+      await addCourseOutcome(courseId, {});
     }
-    await saveMapping(courseId, defaultMapping);
 
     res.status(201).json({ success: true, message: 'Course created successfully', data: { id: courseId } });
   } catch (err) {
@@ -150,7 +180,6 @@ router.delete('/courses/:id', protect, checkCoursePermission(['Teacher']), async
 });
 
 // ── Course Assignment Management ─────────────────────────────────────────────
-// Assign or update a user on a course (Admin, Examination Team, or the Teacher owner)
 router.post('/courses/:id/assign', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
     const courseId = req.params.id;
@@ -174,7 +203,6 @@ router.post('/courses/:id/assign', protect, checkCoursePermission(['Teacher']), 
   }
 });
 
-// Remove a user from a course assignment (Admin, Examination Team, or Teacher owner)
 router.delete('/courses/:id/assign/:userId', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
     const removed = await removeUserFromCourse(req.params.id, req.params.userId);
@@ -185,7 +213,6 @@ router.delete('/courses/:id/assign/:userId', protect, checkCoursePermission(['Te
   }
 });
 
-// Get all users assigned to a course
 router.get('/courses/:id/assignments', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
     const assignments = await getAssignmentsForCourse(req.params.id);
@@ -195,166 +222,74 @@ router.get('/courses/:id/assignments', protect, checkCoursePermission(['Teacher'
   }
 });
 
-// 2. Course Workspace config — all authenticated users can read their course configs
-router.get('/courses/:id/config', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
+// ── Course Outcomes (dynamic — add/edit/archive) ─────────────────────────────
+
+router.get('/courses/:id/outcomes', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
-    if (!course) {
-      return res.status(404).json({ success: false, message: 'Course not found' });
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+    const outcomes = await getActiveOutcomes(course.id);
+    res.json({ success: true, data: outcomes, maxAllowed: MAX_COS_PER_COURSE });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/courses/:id/outcomes', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+    const { description, max_internal, max_external } = req.body;
+    const outcome = await addCourseOutcome(course.id, { description, max_internal, max_external });
+    res.status(201).json({ success: true, message: `CO${outcome.co_number} added.`, data: outcome });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/courses/:id/outcomes/:coId', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+    const outcome = await getOutcomeById(req.params.coId);
+    if (!outcome || outcome.course_id !== course.id) {
+      return res.status(404).json({ success: false, message: 'Course Outcome not found on this course.' });
+    }
+    const { description, max_internal, max_external } = req.body;
+    await updateCourseOutcome(outcome.id, { description, max_internal, max_external });
+    res.json({ success: true, message: `CO${outcome.co_number} updated.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Archives (never hard-deletes) a CO. Reports back what still references it so the frontend can
+// show a clear confirmation — the archive itself always succeeds and preserves every reference.
+router.delete('/courses/:id/outcomes/:coId', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+    const outcome = await getOutcomeById(req.params.coId);
+    if (!outcome || outcome.course_id !== course.id) {
+      return res.status(404).json({ success: false, message: 'Course Outcome not found on this course.' });
     }
 
-    let config = await getConfig(course.id);
-    // Self-healing: create default config if none exists (e.g. legacy courses)
-    if (!config) {
-      const defaultConfig = {
-        threshold_percent_internal: 40.0,
-        threshold_percent_external: 40.0,
-        level1_criteria_internal: 50.0,
-        level2_criteria_internal: 60.0,
-        level3_criteria_internal: 70.0,
-        level1_criteria_external: 50.0,
-        level2_criteria_external: 60.0,
-        level3_criteria_external: 70.0,
-        total_max_internal: 60,
-        total_max_external: 100,
-        internal_weight: 30.0,
-        external_weight: 70.0,
-      };
-      for (let co = 1; co <= 6; co++) {
-        defaultConfig[`co${co}_max_internal`] = co <= 3 ? 10 : 15;
-        defaultConfig[`co${co}_max_external`] = 100;
-      }
-      await saveConfig(course.id, defaultConfig);
-      config = await getConfig(course.id);
-    }
+    const [[questionCount]] = await pool.query(
+      'SELECT COUNT(*) as count FROM question_configs WHERE co_id = ? AND is_active = 1',
+      [outcome.id],
+    );
+    const [[marksCount]] = await pool.query(
+      'SELECT COUNT(*) as count FROM student_co_marks WHERE co_id = ? AND marks > 0',
+      [outcome.id],
+    );
 
-    let coDescriptions = await getCoDescriptions(course.id);
-    // Self-healing: create default CO descriptions if none exist
-    if (!coDescriptions || coDescriptions.length === 0) {
-      const defaultDescriptions = Array.from({ length: course.num_cos }, (_, i) => ({
-        co_number: i + 1,
-        description: `Course Outcome ${i + 1}`,
-      }));
-      await saveCoDescriptions(course.id, defaultDescriptions);
-      coDescriptions = await getCoDescriptions(course.id);
-    }
-
+    await archiveCourseOutcome(outcome.id);
     res.json({
       success: true,
-      data: { course, config, coDescriptions },
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Only Admins, Examination Team, and Teachers (owners/assigned) can save config
-router.post('/courses/:id/config', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
-  try {
-    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
-    if (!course) {
-      return res.status(404).json({ success: false, message: 'Course not found' });
-    }
-
-    const { config, coDescriptions } = req.body;
-    if (config) {
-      const configToSave = { ...config };
-      if (configToSave.questions_config_internal && typeof configToSave.questions_config_internal === 'object') {
-        configToSave.questions_config_internal = JSON.stringify(configToSave.questions_config_internal);
-      }
-      if (configToSave.questions_config_external && typeof configToSave.questions_config_external === 'object') {
-        configToSave.questions_config_external = JSON.stringify(configToSave.questions_config_external);
-      }
-      await saveConfig(course.id, configToSave);
-    }
-    if (coDescriptions) await saveCoDescriptions(course.id, coDescriptions);
-
-    res.json({ success: true, message: 'Configuration saved successfully' });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// 3. CO-PO Mapping Matrix — all course members can read
-router.get('/courses/:id/mapping', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
-  try {
-    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
-    if (!course) {
-      return res.status(404).json({ success: false, message: 'Course not found' });
-    }
-
-    const mapping = await getMapping(course.id);
-    res.json({ success: true, data: mapping });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Only Admins, Examination Team, and Teachers can save CO-PO mapping
-router.post('/courses/:id/mapping', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
-  try {
-    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
-    if (!course) {
-      return res.status(404).json({ success: false, message: 'Course not found' });
-    }
-
-    const mappingData = req.body;
-    const numCos = course.num_cos;
-
-    const pos = [];
-    for (let p = 1; p <= 12; p++) pos.push(`po${p}`);
-    for (let ps = 1; ps <= 3; ps++) pos.push(`pso${ps}`);
-
-    pos.forEach(po => {
-      let sum = 0;
-      let count = 0;
-      for (let co = 1; co <= numCos; co++) {
-        const val = parseInt(mappingData[`co${co}_${po}`]) || 0;
-        if (val > 0) {
-          sum += val;
-          count++;
-        }
-      }
-      mappingData[`avg_${po}`] = count > 0 ? parseFloat((sum / count).toFixed(2)) : 0.00;
-    });
-
-    await saveMapping(course.id, mappingData);
-    res.json({ success: true, message: 'CO-PO mapping saved successfully' });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// 4. Student Marks — all assigned users can read
-router.get('/courses/:id/marks', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
-  try {
-    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
-    if (!course) {
-      return res.status(404).json({ success: false, message: 'Course not found' });
-    }
-
-    const mtt = await getMarksByCourse(course.id, 'MTT');
-    const ett = await getMarksByCourse(course.id, 'ETT');
-
-    // Normalize student record: parse question marks and add field aliases for frontend
-    const normalizeStudent = (s) => {
-      let questionMarks = {};
-      if (s.question_marks) {
-        try { questionMarks = JSON.parse(s.question_marks); } catch (e) { /* ignore */ }
-      }
-      return {
-        ...s,
-        roll: s.reg_no || '',        // alias so frontend always has `roll` field
-        totalMarks: parseFloat(s.total_marks) || 0,  // camelCase alias
-        questionMarks,
-      };
-    };
-
-    res.json({
-      success: true,
-      data: { 
-        mtt: mtt.map(normalizeStudent), 
-        ett: ett.map(normalizeStudent) 
+      message: `CO${outcome.co_number} archived. It no longer appears in active configuration, but all existing questions, marks, and mappings referencing it are preserved.`,
+      data: {
+        hadActiveQuestions: questionCount.count > 0,
+        hadStudentMarks: marksCount.count > 0,
       },
     });
   } catch (err) {
@@ -362,46 +297,319 @@ router.get('/courses/:id/marks', protect, checkCoursePermission(['Teacher', 'Vie
   }
 });
 
-// Only Admins, Examination Team, and Teachers (assigned) can save marks
-router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+// 2. Course Workspace config — thresholds/weights only; CO list lives under /outcomes
+router.get('/courses/:id/config', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
-    if (!course) {
-      return res.status(404).json({ success: false, message: 'Course not found' });
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+
+    let config = await getConfig(course.id);
+    if (!config) {
+      await saveConfig(course.id, DEFAULT_CONFIG);
+      config = await getConfig(course.id);
     }
 
-    const { examType, students } = req.body;
+    const outcomes = await getActiveOutcomes(course.id);
+    // Self-healing: a pre-existing course somehow still has zero outcomes (shouldn't happen once
+    // the startup migration has run, but guards against a course created mid-migration failure).
+    const finalOutcomes = outcomes.length > 0 ? outcomes : await (async () => {
+      await addCourseOutcome(course.id, {});
+      return getActiveOutcomes(course.id);
+    })();
+
+    res.json({
+      success: true,
+      data: { course, config, outcomes: finalOutcomes },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Only saves threshold/weight settings now — CO descriptions/max-marks go through /outcomes
+router.post('/courses/:id/config', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+
+    const { config } = req.body;
+    if (config) {
+      await saveConfig(course.id, config);
+    }
+
+    res.json({ success: true, message: 'Configuration saved successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Question Paper Configuration (dynamic count, teacher-controlled CO mapping) ─────────────
+
+router.get('/courses/:id/questions', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+    const examType = req.query.examType === 'ETT' ? 'ETT' : 'MTT';
+    const questions = await getQuestionConfigs(course.id, examType);
+    res.json({ success: true, data: questions, maxAllowed: MAX_QUESTIONS_PER_EXAM });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Body: { examType: 'MTT'|'ETT', questions: [{ question_number, co_id, max_marks }] }
+// Validates every question's CO exists on this course, and that no CO's total allocated
+// question marks exceed its configured max for that component — rejects the whole save with a
+// clear message instead of silently persisting an inconsistent paper.
+router.post('/courses/:id/questions', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+
+    const { examType, questions } = req.body;
     if (!['MTT', 'ETT'].includes(examType)) {
       return res.status(400).json({ success: false, message: 'Invalid exam type' });
+    }
+    if (!Array.isArray(questions)) {
+      return res.status(400).json({ success: false, message: 'questions must be an array' });
+    }
+
+    const outcomes = await getActiveOutcomes(course.id);
+    const outcomeById = new Map(outcomes.map((o) => [o.id, o]));
+
+    const seenNumbers = new Set();
+    const allocatedByCoId = new Map();
+    for (const q of questions) {
+      const coId = parseInt(q.co_id, 10);
+      const maxMarks = parseFloat(q.max_marks);
+      const qNumber = parseInt(q.question_number, 10);
+
+      if (!outcomeById.has(coId)) {
+        return res.status(400).json({ success: false, message: `Question ${q.question_number}: selected CO does not exist on this course.` });
+      }
+      if (Number.isNaN(maxMarks) || maxMarks <= 0) {
+        return res.status(400).json({ success: false, message: `Question ${q.question_number}: maximum marks must be a positive number.` });
+      }
+      if (seenNumbers.has(qNumber)) {
+        return res.status(400).json({ success: false, message: `Duplicate question number ${qNumber}.` });
+      }
+      seenNumbers.add(qNumber);
+      allocatedByCoId.set(coId, (allocatedByCoId.get(coId) || 0) + maxMarks);
+    }
+
+    const isInternal = examType === 'MTT';
+    for (const [coId, allocated] of allocatedByCoId.entries()) {
+      const outcome = outcomeById.get(coId);
+      const coMax = parseFloat(isInternal ? outcome.max_internal : outcome.max_external);
+      if (allocated > coMax) {
+        return res.status(400).json({
+          success: false,
+          message: `CO${outcome.co_number} question allocation (${allocated}) exceeds its configured ${examType} maximum of ${coMax} marks.`,
+        });
+      }
+    }
+
+    await replaceQuestionConfigs(
+      course.id,
+      examType,
+      questions.map((q) => ({
+        question_number: parseInt(q.question_number, 10),
+        co_id: parseInt(q.co_id, 10),
+        max_marks: parseFloat(q.max_marks),
+      })),
+    );
+
+    res.json({ success: true, message: 'Question paper configuration saved successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 3. CO-PO / CO-PSO Mapping — dynamic CO rows, fixed 12 PO + 3 PSO columns
+router.get('/courses/:id/mapping', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+
+    const values = await getCoPoValuesForCourse(course.id);
+    const averages = await getCoPoAveragesForCourse(course.id);
+    res.json({ success: true, data: { values, averages } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Body: { values: [{ co_id, po1..po12, pso1..pso3 }] }
+router.post('/courses/:id/mapping', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+
+    const { values } = req.body;
+    if (!Array.isArray(values)) {
+      return res.status(400).json({ success: false, message: 'values must be an array' });
+    }
+
+    const outcomes = await getActiveOutcomes(course.id);
+    const validCoIds = new Set(outcomes.map((o) => o.id));
+
+    for (const row of values) {
+      const coId = parseInt(row.co_id, 10);
+      if (!validCoIds.has(coId)) {
+        return res.status(400).json({ success: false, message: 'One or more mapping rows reference a CO that does not belong to this course.' });
+      }
+      // eslint-disable-next-line no-await-in-loop -- small, bounded by CO count
+      await saveCoPoValue(coId, row);
+    }
+
+    res.json({ success: true, message: 'CO-PO mapping saved successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 4. Student Marks — dynamic CO / question columns, sourced entirely from persisted config
+router.get('/courses/:id/marks', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+
+    const buildForExamType = async (examType) => {
+      const [studentRows] = await pool.query(
+        'SELECT id, name, reg_no, total_marks FROM student_marks WHERE course_id = ? AND exam_type = ? ORDER BY reg_no ASC',
+        [course.id, examType],
+      );
+      const coMarksByStudent = await getCoMarksForCourse(course.id, examType);
+      const questionMarksByStudent = await getQuestionMarksForCourse(course.id, examType);
+
+      return studentRows.map((s) => ({
+        id: s.id,
+        name: s.name,
+        reg_no: s.reg_no,
+        roll: s.reg_no,
+        totalMarks: parseFloat(s.total_marks) || 0,
+        coMarks: coMarksByStudent.get(s.id) || {},
+        questionMarks: questionMarksByStudent.get(s.id) || {},
+      }));
+    };
+
+    const mtt = await buildForExamType('MTT');
+    const ett = await buildForExamType('ETT');
+
+    res.json({ success: true, data: { mtt, ett } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Body: { examType, entryMode: 'co'|'question', students: [{ name, roll, coMarks?, questionMarks? }] }
+// In 'question' mode, per-CO totals are always derived server-side by summing each student's
+// question marks against the persisted question->CO mapping — never trusted from the client and
+// never independently editable, so CO aggregation can't drift from the actual question paper.
+router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+
+    const { examType, entryMode, students } = req.body;
+    if (!['MTT', 'ETT'].includes(examType)) {
+      return res.status(400).json({ success: false, message: 'Invalid exam type' });
+    }
+    if (!Array.isArray(students)) {
+      return res.status(400).json({ success: false, message: 'students must be an array' });
+    }
+
+    const outcomes = await getActiveOutcomes(course.id);
+    const outcomeById = new Map(outcomes.map((o) => [o.id, o]));
+    const isInternal = examType === 'MTT';
+
+    let questionConfigById = new Map();
+    if (entryMode === 'question') {
+      const questions = await getQuestionConfigs(course.id, examType);
+      questionConfigById = new Map(questions.map((q) => [q.id, q]));
+    }
+
+    // Validate every mark before writing anything — a rejected row shouldn't leave a partial save.
+    for (const student of students) {
+      if (entryMode === 'question') {
+        for (const [qcIdStr, mark] of Object.entries(student.questionMarks || {})) {
+          const qc = questionConfigById.get(parseInt(qcIdStr, 10));
+          if (!qc) continue; // stale/removed question — ignore rather than fail the whole save
+          const val = parseFloat(mark) || 0;
+          if (val < 0 || val > parseFloat(qc.max_marks)) {
+            return res.status(400).json({
+              success: false,
+              message: `${student.name || student.roll || 'A student'}: Q${qc.question_number} mark (${val}) must be between 0 and ${qc.max_marks}.`,
+            });
+          }
+        }
+      } else {
+        for (const [coIdStr, mark] of Object.entries(student.coMarks || {})) {
+          const co = outcomeById.get(parseInt(coIdStr, 10));
+          if (!co) continue;
+          const maxMarks = parseFloat(isInternal ? co.max_internal : co.max_external);
+          const val = parseFloat(mark) || 0;
+          if (val < 0 || val > maxMarks) {
+            return res.status(400).json({
+              success: false,
+              message: `${student.name || student.roll || 'A student'}: CO${co.co_number} mark (${val}) must be between 0 and ${maxMarks}.`,
+            });
+          }
+        }
+      }
     }
 
     await deleteMarksByCourse(course.id, examType);
 
     for (const student of students) {
-      let totalMarks = 0;
-      for (let co = 1; co <= course.num_cos; co++) {
-        totalMarks += parseFloat(student[`co${co}`]) || 0;
+      let coMarksToSave;
+      let questionMarksToSave = [];
+
+      if (entryMode === 'question') {
+        const perCoTotals = new Map();
+        questionMarksToSave = Object.entries(student.questionMarks || {})
+          .map(([qcIdStr, mark]) => {
+            const qc = questionConfigById.get(parseInt(qcIdStr, 10));
+            if (!qc) return null;
+            const val = parseFloat(mark) || 0;
+            perCoTotals.set(qc.co_id, (perCoTotals.get(qc.co_id) || 0) + val);
+            return { question_config_id: qc.id, marks: val };
+          })
+          .filter(Boolean);
+        coMarksToSave = Array.from(perCoTotals.entries()).map(([co_id, marks]) => ({ co_id, marks }));
+      } else {
+        coMarksToSave = Object.entries(student.coMarks || {})
+          .filter(([coIdStr]) => outcomeById.has(parseInt(coIdStr, 10)))
+          .map(([coIdStr, marks]) => ({ co_id: parseInt(coIdStr, 10), marks: parseFloat(marks) || 0 }));
       }
 
-      let qMarksStr = null;
-      if (student.questionMarks) {
-        qMarksStr = typeof student.questionMarks === 'object' ? JSON.stringify(student.questionMarks) : student.questionMarks;
-      }
+      const totalMarks = coMarksToSave.reduce((sum, c) => sum + c.marks, 0);
 
-      await saveStudentMark({
+      // Best-effort mirror into the legacy co1-6 columns for anyone still reading raw SQL —
+      // purely cosmetic, has zero effect on attainment/marks-read, which use the tables below.
+      const legacyCoValues = {};
+      coMarksToSave.forEach((c) => {
+        const outcome = outcomeById.get(c.co_id);
+        if (outcome && outcome.co_number <= 6) legacyCoValues[`co${outcome.co_number}`] = c.marks;
+      });
+
+      // eslint-disable-next-line no-await-in-loop -- sequential to keep each student's writes atomic-ish
+      const studentMarkId = await saveStudentMark({
         courseId: course.id,
         name: student.name,
-        regNo: student.roll,
+        regNo: student.roll || student.reg_no,
         examType,
-        co1: student.co1 || 0,
-        co2: student.co2 || 0,
-        co3: student.co3 || 0,
-        co4: student.co4 || 0,
-        co5: student.co5 || 0,
-        co6: student.co6 || 0,
+        ...legacyCoValues,
         totalMarks,
-        questionMarks: qMarksStr
+        questionMarks: null, // superseded by student_question_marks
       });
+
+      // eslint-disable-next-line no-await-in-loop
+      await saveStudentCoMarks(studentMarkId, coMarksToSave);
+      if (questionMarksToSave.length > 0) {
+        // eslint-disable-next-line no-await-in-loop
+        await saveStudentQuestionMarks(studentMarkId, questionMarksToSave);
+      }
     }
 
     res.json({ success: true, message: 'Student marks uploaded successfully' });
@@ -410,84 +618,113 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
   }
 });
 
-// 5. Attainment Calculation Engine — all course members can trigger calculation
+// 5. Attainment Calculation Engine
 router.get('/courses/:id/attainment', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
-    if (!course) {
-      return res.status(404).json({ success: false, message: 'Course not found' });
-    }
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
 
     const config = await getConfig(course.id);
-    const mapping = await getMapping(course.id);
-    const mttStudents = await getMarksByCourse(course.id, 'MTT');
-    const ettStudents = await getMarksByCourse(course.id, 'ETT');
+    const courseOutcomes = await getActiveOutcomes(course.id);
+    const coPoAverages = await getCoPoAveragesForCourse(course.id);
+
+    const buildStudentsWithCoMarks = async (examType) => {
+      const [studentRows] = await pool.query(
+        'SELECT id, name, reg_no FROM student_marks WHERE course_id = ? AND exam_type = ?',
+        [course.id, examType],
+      );
+      const coMarksByStudent = await getCoMarksForCourse(course.id, examType);
+      return studentRows.map((s) => ({ ...s, coMarks: coMarksByStudent.get(s.id) || {} }));
+    };
+
+    const mttStudents = await buildStudentsWithCoMarks('MTT');
+    const ettStudents = await buildStudentsWithCoMarks('ETT');
 
     const result = calculateCourseAttainment({
-      course,
+      courseOutcomes,
       config,
-      mapping,
+      coPoAverages,
       mttStudents,
-      ettStudents
+      ettStudents,
     });
 
-    res.json({
-      success: true,
-      data: result,
-    });
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
 });
 
-// 6. Export full course as a portable JSON snapshot — all course members can export
+// 6. Export full course as a portable JSON snapshot
 router.get('/courses/:id/export-json', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
-    if (!course) {
-      return res.status(404).json({ success: false, message: 'Course not found' });
-    }
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
 
-    const config       = await getConfig(course.id);
-    const coDescriptions = await getCoDescriptions(course.id);
-    const mapping      = await getMapping(course.id);
-    const mtt          = await getMarksByCourse(course.id, 'MTT');
-    const ett          = await getMarksByCourse(course.id, 'ETT');
+    const config = await getConfig(course.id);
+    const outcomes = await getActiveOutcomes(course.id);
+    const mappingValues = await getCoPoValuesForCourse(course.id);
+    const mttQuestions = await getQuestionConfigs(course.id, 'MTT');
+    const ettQuestions = await getQuestionConfigs(course.id, 'ETT');
 
-    // Strip internal IDs — only keep transferable fields
-    const courseExport = {
-      subject_name:  course.subject_name,
-      course_code:   course.course_code,
-      school:        course.school,
-      department:    course.department,
-      semester:      course.semester,
-      academic_year: course.academic_year,
-      num_cos:       course.num_cos,
+    const coNumberById = new Map(outcomes.map((o) => [o.id, o.co_number]));
+    const questionNumberById = new Map([...mttQuestions, ...ettQuestions].map((q) => [q.id, q.question_number]));
+
+    // Keyed by co_number / question_number (portable across databases), never by internal id —
+    // a snapshot's ids only mean something in the database it was exported from.
+    const buildMarks = async (examType) => {
+      const [studentRows] = await pool.query(
+        'SELECT id, name, reg_no, total_marks FROM student_marks WHERE course_id = ? AND exam_type = ?',
+        [course.id, examType],
+      );
+      const coMarksByStudent = await getCoMarksForCourse(course.id, examType);
+      const questionMarksByStudent = await getQuestionMarksForCourse(course.id, examType);
+      return studentRows.map((s) => {
+        const coMarksByCoId = coMarksByStudent.get(s.id) || {};
+        const questionMarksByQcId = questionMarksByStudent.get(s.id) || {};
+        const coMarks = {};
+        Object.entries(coMarksByCoId).forEach(([coId, marks]) => {
+          const num = coNumberById.get(parseInt(coId, 10));
+          if (num) coMarks[num] = marks;
+        });
+        const questionMarks = {};
+        Object.entries(questionMarksByQcId).forEach(([qcId, marks]) => {
+          const num = questionNumberById.get(parseInt(qcId, 10));
+          if (num) questionMarks[num] = marks;
+        });
+        return {
+          name: s.name,
+          reg_no: s.reg_no,
+          total_marks: parseFloat(s.total_marks) || 0,
+          coMarks,
+          questionMarks,
+        };
+      });
     };
 
-    const cleanMark = (s) => ({
-      name:          s.name || '',
-      reg_no:        s.reg_no || '',
-      co1: s.co1 || 0, co2: s.co2 || 0, co3: s.co3 || 0,
-      co4: s.co4 || 0, co5: s.co5 || 0, co6: s.co6 || 0,
-      total_marks:   s.total_marks || 0,
-      question_marks: s.question_marks || null,
-    });
-
     const snapshot = {
-      exportVersion: '1.0',
-      exportedAt:    new Date().toISOString(),
-      exportedBy:    req.user.name || req.user.email,
-      course:        courseExport,
-      config:        config || {},
-      coDescriptions: (coDescriptions || []).map(d => ({
-        co_number:   d.co_number,
-        description: d.description,
+      exportVersion: '2.0',
+      exportedAt: new Date().toISOString(),
+      exportedBy: req.user.name || req.user.email,
+      course: {
+        subject_name: course.subject_name,
+        course_code: course.course_code,
+        school: course.school,
+        department: course.department,
+        semester: course.semester,
+        academic_year: course.academic_year,
+      },
+      config: config || {},
+      outcomes: outcomes.map((o) => ({
+        co_number: o.co_number,
+        description: o.description,
+        max_internal: o.max_internal,
+        max_external: o.max_external,
       })),
-      mapping: mapping || {},
+      mapping: mappingValues.map((v) => ({ co_number: v.co_number, ...v })),
+      questions: { mtt: mttQuestions, ett: ettQuestions },
       marks: {
-        mtt: mtt.map(cleanMark),
-        ett: ett.map(cleanMark),
+        mtt: await buildMarks('MTT'),
+        ett: await buildMarks('ETT'),
       },
     };
 
@@ -497,68 +734,121 @@ router.get('/courses/:id/export-json', protect, checkCoursePermission(['Teacher'
   }
 });
 
-// 7. Import course from a JSON snapshot — Admins, Examination Team, Teachers only
+// 7. Import course from a v2.0 JSON snapshot (exported by this same version of the app).
+// Snapshots exported before the dynamic-CO migration (exportVersion '1.0') are not supported —
+// re-export the source course after it has gone through the startup migration.
 router.post('/courses/import-json', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { courseData } = req.body;
     if (!courseData || !courseData.course) {
       return res.status(400).json({ success: false, message: 'Invalid course snapshot. Missing course data.' });
     }
+    if (courseData.exportVersion !== '2.0') {
+      return res.status(400).json({
+        success: false,
+        message: 'This snapshot was exported by an older version of the app and cannot be imported. Re-export it from the source course first.',
+      });
+    }
 
-    const { course: c, config, coDescriptions, mapping, marks } = courseData;
+    const { course: c, config, outcomes, mapping, questions, marks } = courseData;
 
-    // 1. Create the new course under the importing teacher
     const courseId = await createCourse({
-      teacherId:    req.user.id,
-      school:       c.school       || '',
-      department:   c.department   || '',
-      subjectName:  c.subject_name || 'Imported Course',
-      courseCode:   c.course_code  || '',
-      semester:     c.semester     || 1,
+      teacherId: req.user.id,
+      school: c.school || '',
+      department: c.department || '',
+      subjectName: c.subject_name || 'Imported Course',
+      courseCode: c.course_code || '',
+      semester: c.semester || 1,
       academicYear: c.academic_year || '',
-      numCos:       c.num_cos      || 5,
+      numCos: (outcomes || []).length || 5,
     });
 
-    // 2. Save config (stringify question configs if they are objects)
     if (config && Object.keys(config).length > 0) {
-      const configToSave = { ...config };
-      if (configToSave.questions_config_internal && typeof configToSave.questions_config_internal === 'object') {
-        configToSave.questions_config_internal = JSON.stringify(configToSave.questions_config_internal);
+      await saveConfig(courseId, config);
+    }
+
+    // Outcomes were auto-seeded by createCourse — overwrite their descriptions/max marks with
+    // the snapshot's values in co_number order, then add any beyond the initial seed count.
+    const seededOutcomes = await getActiveOutcomes(courseId);
+    const coIdByNumber = new Map();
+    for (let i = 0; i < (outcomes || []).length; i += 1) {
+      const src = outcomes[i];
+      let outcome = seededOutcomes[i];
+      if (!outcome) {
+        // eslint-disable-next-line no-await-in-loop
+        outcome = await addCourseOutcome(courseId, {});
       }
-      if (configToSave.questions_config_external && typeof configToSave.questions_config_external === 'object') {
-        configToSave.questions_config_external = JSON.stringify(configToSave.questions_config_external);
+      // eslint-disable-next-line no-await-in-loop
+      await updateCourseOutcome(outcome.id, {
+        description: src.description,
+        max_internal: src.max_internal,
+        max_external: src.max_external,
+      });
+      coIdByNumber.set(src.co_number, outcome.id);
+    }
+
+    if (Array.isArray(mapping)) {
+      for (const row of mapping) {
+        const coId = coIdByNumber.get(row.co_number);
+        if (coId) {
+          // eslint-disable-next-line no-await-in-loop
+          await saveCoPoValue(coId, row);
+        }
       }
-      await saveConfig(courseId, configToSave);
     }
 
-    // 3. Save CO descriptions
-    if (coDescriptions && coDescriptions.length > 0) {
-      await saveCoDescriptions(courseId, coDescriptions);
+    const questionIdByOldId = { mtt: new Map(), ett: new Map() };
+    if (questions?.mtt?.length) {
+      await replaceQuestionConfigs(courseId, 'MTT', questions.mtt.map((q) => ({
+        question_number: q.question_number, co_id: coIdByNumber.get(q.co_number), max_marks: q.max_marks,
+      })).filter((q) => q.co_id));
+      const saved = await getQuestionConfigs(courseId, 'MTT');
+      saved.forEach((q) => questionIdByOldId.mtt.set(q.question_number, q.id));
+    }
+    if (questions?.ett?.length) {
+      await replaceQuestionConfigs(courseId, 'ETT', questions.ett.map((q) => ({
+        question_number: q.question_number, co_id: coIdByNumber.get(q.co_number), max_marks: q.max_marks,
+      })).filter((q) => q.co_id));
+      const saved = await getQuestionConfigs(courseId, 'ETT');
+      saved.forEach((q) => questionIdByOldId.ett.set(q.question_number, q.id));
     }
 
-    // 4. Save CO-PO mapping
-    if (mapping && Object.keys(mapping).length > 0) {
-      await saveMapping(courseId, mapping);
-    }
-
-    // 5. Save student marks (MTT then ETT)
     const importMarks = async (students, examType) => {
       if (!students || students.length === 0) return;
+      const qIdMap = examType === 'MTT' ? questionIdByOldId.mtt : questionIdByOldId.ett;
+
       for (const student of students) {
-        let totalMarks = 0;
-        for (let co = 1; co <= (c.num_cos || 5); co++) {
-          totalMarks += parseFloat(student[`co${co}`]) || 0;
-        }
-        await saveStudentMark({
+        // coMarks/questionMarks in the snapshot are keyed by co_number/question_number
+        // (portable), resolved here to this new course's actual co_id/question_config_id.
+        const finalCoMarks = Object.entries(student.coMarks || {})
+          .map(([coNum, marks]) => {
+            const coId = coIdByNumber.get(parseInt(coNum, 10));
+            return coId ? { co_id: coId, marks: parseFloat(marks) || 0 } : null;
+          })
+          .filter(Boolean);
+
+        const questionMarksToSave = Object.entries(student.questionMarks || {})
+          .map(([qNum, marks]) => {
+            const qId = qIdMap.get(parseInt(qNum, 10));
+            return qId ? { question_config_id: qId, marks: parseFloat(marks) || 0 } : null;
+          })
+          .filter(Boolean);
+
+        const totalMarks = finalCoMarks.reduce((sum, c) => sum + c.marks, 0) || student.total_marks || 0;
+
+        // eslint-disable-next-line no-await-in-loop
+        const studentMarkId = await saveStudentMark({
           courseId,
-          name:          student.name || '',
-          regNo:         student.reg_no || '',
+          name: student.name || '',
+          regNo: student.reg_no || '',
           examType,
-          co1: student.co1 || 0, co2: student.co2 || 0, co3: student.co3 || 0,
-          co4: student.co4 || 0, co5: student.co5 || 0, co6: student.co6 || 0,
           totalMarks,
-          questionMarks: student.question_marks || null,
+          questionMarks: null,
         });
+        // eslint-disable-next-line no-await-in-loop
+        if (finalCoMarks.length > 0) await saveStudentCoMarks(studentMarkId, finalCoMarks);
+        // eslint-disable-next-line no-await-in-loop
+        if (questionMarksToSave.length > 0) await saveStudentQuestionMarks(studentMarkId, questionMarksToSave);
       }
     };
 
