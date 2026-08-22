@@ -86,13 +86,38 @@ const createMappingTables = async () => {
   `);
 };
 
+// Column identifiers can't be parameterized with `?` placeholders, and saveMapping/saveConfig
+// build INSERT/UPDATE column lists directly from client-controlled object keys (req.body).
+// Without a whitelist, a crafted JSON key becomes a raw SQL fragment (CWE-89). These sets pin
+// the exact columns each table actually has — anything else is silently dropped, not executed.
+const ALLOWED_MAPPING_COLUMNS = new Set();
+for (let co = 1; co <= 6; co += 1) {
+  for (let po = 1; po <= 12; po += 1) ALLOWED_MAPPING_COLUMNS.add(`co${co}_po${po}`);
+  for (let pso = 1; pso <= 3; pso += 1) ALLOWED_MAPPING_COLUMNS.add(`co${co}_pso${pso}`);
+}
+for (let po = 1; po <= 12; po += 1) ALLOWED_MAPPING_COLUMNS.add(`avg_po${po}`);
+for (let pso = 1; pso <= 3; pso += 1) ALLOWED_MAPPING_COLUMNS.add(`avg_pso${pso}`);
+
+const ALLOWED_CONFIG_COLUMNS = new Set([
+  'threshold_percent_internal', 'threshold_percent_external',
+  'level1_criteria_internal', 'level2_criteria_internal', 'level3_criteria_internal',
+  'level1_criteria_external', 'level2_criteria_external', 'level3_criteria_external',
+  'total_max_internal', 'total_max_external',
+  'internal_weight', 'external_weight',
+  'questions_config_internal', 'questions_config_external',
+]);
+for (let co = 1; co <= 6; co += 1) {
+  ALLOWED_CONFIG_COLUMNS.add(`co${co}_max_internal`);
+  ALLOWED_CONFIG_COLUMNS.add(`co${co}_max_external`);
+}
+
 const getMapping = async (courseId) => {
   const [rows] = await pool.query('SELECT * FROM co_po_mappings WHERE course_id = ?', [courseId]);
   return rows[0] || null;
 };
 
 const saveMapping = async (courseId, mappingData) => {
-  const keys = Object.keys(mappingData).filter(k => k !== 'course_id');
+  const keys = Object.keys(mappingData).filter(k => ALLOWED_MAPPING_COLUMNS.has(k));
   if (keys.length === 0) return;
 
   const placeholders = keys.map(() => '?');
@@ -114,7 +139,7 @@ const getConfig = async (courseId) => {
 };
 
 const saveConfig = async (courseId, configData) => {
-  const keys = Object.keys(configData).filter(k => k !== 'course_id');
+  const keys = Object.keys(configData).filter(k => ALLOWED_CONFIG_COLUMNS.has(k));
   if (keys.length === 0) return;
 
   const placeholders = keys.map(() => '?');

@@ -125,11 +125,13 @@ export const parseExcel = (
   totalMax,
   setStudents,
   setStatus,
-  questions
+  questions,
+  setIssues
 ) => {
   const reader = new FileReader()
 
   reader.onload = (e) => {
+    const issues = []
     try {
       const wb = XLSX.read(e.target.result, { type: "array" })
       const sheet = wb.Sheets[wb.SheetNames[0]]
@@ -187,13 +189,24 @@ export const parseExcel = (
       }
 
       /* ---- READ STUDENTS ---- */
-      const students = rows
-        .slice(startRow)
+      const dataRows = rows.slice(startRow)
+      const skippedCount = dataRows.filter((r) => !r[colMap.name]).length
+      if (skippedCount > 0) {
+        issues.push(`${skippedCount} row(s) skipped — missing student name.`)
+      }
+
+      const students = dataRows
         .filter((r) => r[colMap.name])
         .map((r, i) => {
+          const rowLabel = `Row ${startRow + i + 1} (${r[colMap.name]})`
+          const roll = r[colMap.roll]
+          if (roll === undefined || roll === "" || roll === null) {
+            issues.push(`${rowLabel}: missing registration number.`)
+          }
+
           const student = {
             serialNo: r[colMap.sr] ?? i + 1,
-            roll: r[colMap.roll] ?? "",
+            roll: roll ?? "",
             name: r[colMap.name],
             totalMarks: 0,
             questionMarks: {},
@@ -209,7 +222,12 @@ export const parseExcel = (
           if (hasQCols) {
             let total = 0
             Object.entries(qCols).forEach(([qId, idx]) => {
-              const val = Number(r[idx])
+              const raw = r[idx]
+              const val = Number(raw)
+              const isInvalid = raw !== "" && (isNaN(val) || val < 0)
+              if (isInvalid) {
+                issues.push(`${rowLabel}: Q${qId} mark "${raw}" is invalid — set to 0.`)
+              }
               const parsedVal = isNaN(val) || val < 0 ? 0 : val
               student.questionMarks[qId] = parsedVal
               total += parsedVal
@@ -233,7 +251,12 @@ export const parseExcel = (
             const idx = colMap[co]
             if (idx !== undefined) {
               const maxMark = (coMax && coMax[co]) || 100
-              let val = Number(r[idx])
+              const raw = r[idx]
+              let val = Number(raw)
+              const isInvalid = raw !== "" && (isNaN(val) || val < 0 || val > maxMark)
+              if (isInvalid) {
+                issues.push(`${rowLabel}: ${co.toUpperCase()} mark "${raw}" exceeds max (${maxMark}) or is invalid — set to 0.`)
+              }
               if (isNaN(val) || val < 0 || val > maxMark) val = 0
               student[co] = val
               coTotal += val
@@ -248,11 +271,30 @@ export const parseExcel = (
           return student
         })
 
+      // Duplicate registration numbers within the same sheet
+      const rollCounts = new Map()
+      students.forEach((s) => {
+        const key = String(s.roll).trim().toLowerCase()
+        if (!key) return
+        rollCounts.set(key, (rollCounts.get(key) || 0) + 1)
+      })
+      rollCounts.forEach((count, key) => {
+        if (count > 1) {
+          issues.push(`Duplicate registration number "${key}" appears ${count} times.`)
+        }
+      })
+
       setStudents(students)
-      setStatus(`✅ Loaded ${students.length} students`)
+      if (setIssues) setIssues(issues)
+      setStatus(
+        issues.length > 0
+          ? `⚠️ Loaded ${students.length} students with ${issues.length} issue(s) — review before saving.`
+          : `✅ Loaded ${students.length} students`
+      )
     } catch (err) {
       console.error(err)
       setStatus("❌ Excel parsing failed")
+      if (setIssues) setIssues([])
     }
   }
   reader.readAsArrayBuffer(file)

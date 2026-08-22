@@ -1,13 +1,22 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
 import { fetchCourses, createCourse, deleteCourse, importCourseJson } from '../Api/AttainmentApi';
 import { useAuth } from '../context/AuthContext';
-import { 
-  BookOpen, Plus, Award, LogOut, Loader2, RefreshCw, Upload, CheckCircle2, X, ShieldCheck
+import {
+  BookOpen, Plus, Loader2, RefreshCw, Upload, CheckCircle2, X, Layers, ListChecks,
 } from 'lucide-react';
 
+import AppHeader from '../components/layout/AppHeader';
 import CourseCard from '../components/dashboard/CourseCard';
 import CreateCourseModal from '../components/dashboard/CreateCourseModal';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import MetricCard from '../components/ui/MetricCard';
+import EmptyState from '../components/ui/EmptyState';
+import ErrorState from '../components/ui/ErrorState';
+import { Skeleton } from '../components/ui/skeleton';
+import PageTransition from '../components/ui/PageTransition';
 
 const academicStructure = {
   Engineering: {
@@ -20,12 +29,14 @@ const academicStructure = {
 
 const DashboardPage = () => {
   const navigate = useNavigate();
-  const { user, logout, hasRole } = useAuth();
+  const { user, hasRole } = useAuth();
   const [courses, setCourses]       = useState([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
   const [showModal, setShowModal]   = useState(false);
   const [creating, setCreating]     = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
+  const [deleting, setDeleting]     = useState(false);
 
   // Import Course state
   const importInputRef              = useRef(null);
@@ -61,6 +72,18 @@ const DashboardPage = () => {
     loadCourses();
   }, []);
 
+  const metrics = useMemo(() => {
+    const total = courses.length;
+    const fullyConfigured = courses.filter(
+      (c) => c.hasMapping && c.hasInternalMarks && c.hasExternalMarks
+    ).length;
+    const inProgress = total - fullyConfigured - courses.filter(
+      (c) => !c.hasMapping && !c.hasInternalMarks && !c.hasExternalMarks
+    ).length;
+    const totalCos = courses.reduce((sum, c) => sum + (c.num_cos || 0), 0);
+    return { total, fullyConfigured, inProgress, totalCos };
+  }, [courses]);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => {
@@ -75,7 +98,7 @@ const DashboardPage = () => {
   const handleCreateCourse = async (e) => {
     e.preventDefault();
     if (!formData.school || !formData.department || !formData.subjectName || !formData.courseCode || !formData.academicYear) {
-      alert('Please fill all required fields.');
+      toast.error('Please fill all required fields.');
       return;
     }
     setCreating(true);
@@ -96,23 +119,31 @@ const DashboardPage = () => {
         numCos: '5'
       });
       await loadCourses();
+      toast.success('Course created successfully.');
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to create course.');
+      toast.error(err.response?.data?.message || 'Failed to create course.');
     } finally {
       setCreating(false);
     }
   };
 
-  const handleDeleteCourse = async (id, e) => {
+  const handleDeleteCourse = (id, e) => {
     e.stopPropagation();
-    if (!window.confirm('Are you sure you want to delete this course and all its related marks and configurations? This action is irreversible.')) {
-      return;
-    }
+    setPendingDeleteId(id);
+  };
+
+  const confirmDeleteCourse = async () => {
+    if (!pendingDeleteId) return;
+    setDeleting(true);
     try {
-      await deleteCourse(id);
+      await deleteCourse(pendingDeleteId);
       await loadCourses();
+      toast.success('Course deleted.');
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to delete course.');
+      toast.error(err.response?.data?.message || 'Failed to delete course.');
+    } finally {
+      setDeleting(false);
+      setPendingDeleteId(null);
     }
   };
 
@@ -165,214 +196,184 @@ const DashboardPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white font-sans antialiased">
-      {/* Navbar */}
-      <header className="sticky top-0 z-10 backdrop-blur-md bg-slate-900/60 border-b border-slate-700/50 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <Award className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-200 bg-clip-text text-transparent">CO-PO Attainemnt Calculator</h1>
-            <p className="text-xs text-slate-400">Course & Program Outcome Attainment</p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <div className="hidden sm:block text-right">
-            <p className="text-sm font-medium text-slate-200">{user?.name}</p>
-            <p className="text-xs text-slate-400">{user?.email}</p>
-            {/* Role badge */}
-            {user?.role && (
-              <span className={`mt-0.5 inline-block text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded border
-                ${ user.role === 'Admin' ? 'bg-red-500/20 text-red-300 border-red-500/30'
-                  : user.role === 'Examination Team' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                  : user.role === 'Teacher' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                  : 'bg-slate-500/20 text-slate-300 border-slate-500/30' }`}>
-                {user.role}
-              </span>
-            )}
-          </div>
-          {/* Admin Panel link — only visible to Admins */}
-          {hasRole('Admin') && (
-            <button
-              onClick={() => navigate('/admin')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-800/50 hover:bg-red-900/20 transition duration-200 text-sm font-medium text-red-400"
-              title="Open Admin Panel"
-            >
-              <ShieldCheck className="h-4 w-4" />
-              <span className="hidden sm:inline">Admin</span>
-            </button>
-          )}
-          <button 
-            onClick={logout}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800/80 transition duration-200 text-sm font-medium text-slate-300"
-          >
-            <LogOut className="h-4 w-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
-        </div>
-      </header>
+    <div className="min-h-screen bg-background">
+      <AppHeader />
 
-      {/* Main Container */}
-      <main className="max-w-6xl mx-auto px-6 py-10">
-        
-        {/* Banner */}
-        <div className="relative rounded-2xl overflow-hidden bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-slate-700/50 p-8 sm:p-10 mb-10 flex flex-col sm:flex-row items-center justify-between gap-6">
-          <div className="space-y-2 text-center sm:text-left">
-            <h2 className="text-3xl font-extrabold tracking-tight">Teacher Workspace</h2>
-            <p className="text-slate-300 max-w-lg">Manage course details, articulation mapping matrices, student marks, and generate NBA-compliant reports with live Excel formulas.</p>
-          </div>
-          <div className="flex flex-wrap gap-3 justify-center sm:justify-end">
-            {/* Import Course — hidden for Viewers */}
-            {!hasRole('Viewer') && (
-              <label
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-600 bg-slate-800/60 hover:bg-slate-700/60 text-slate-200 font-semibold cursor-pointer transition duration-200"
-                title="Import a course from another teacher's JSON snapshot"
-              >
-                <Upload className="h-4 w-4" /> Import Course
-                <input
-                  ref={importInputRef}
-                  type="file"
-                  accept=".json,application/json"
-                  onChange={handleImportFile}
-                  className="hidden"
-                />
-              </label>
-            )}
-            {/* Create Course — Admins, Examination Team, and Teachers only */}
-            {hasRole('Admin', 'Examination Team', 'Teacher') && (
-              <button
-                onClick={() => setShowModal(true)}
-                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold shadow-lg shadow-indigo-600/25 transition duration-300 transform hover:-translate-y-0.5"
-              >
-                <Plus className="h-5 w-5" />
-                Create Course
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Import Preview Card */}
-        {(importData || importError || importSuccess) && (
-          <div className={`mb-6 rounded-2xl border p-5 transition-all ${
-            importSuccess
-              ? 'border-emerald-500/40 bg-emerald-500/5'
-              : importError
-                ? 'border-red-500/40 bg-red-500/5'
-                : 'border-blue-500/30 bg-blue-500/5'
-          }`}>
-            {importSuccess ? (
-              <div className="flex items-center gap-3 text-emerald-300">
-                <CheckCircle2 className="h-5 w-5 shrink-0" />
-                <p className="text-sm font-medium">{importSuccess}</p>
-              </div>
-            ) : importError ? (
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-red-300">{importError}</p>
-                <button onClick={cancelImport} className="p-1 text-slate-400 hover:text-white transition">
-                  <X className="h-4 w-4" />
+      <PageTransition>
+        <main className="max-w-6xl mx-auto px-6 py-10">
+          {/* Hero banner */}
+          <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-r from-primary/10 to-accent/40 p-8 sm:p-10 mb-8 flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div className="space-y-2 text-center sm:text-left">
+              <h2 className="text-3xl font-extrabold tracking-tight text-foreground">
+                Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, {user?.name?.split(' ')[0]}
+              </h2>
+              <p className="max-w-lg text-muted-foreground">
+                Manage courses, outcomes, student performance, and accreditation analytics from one workspace.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3 justify-center sm:justify-end">
+              {!hasRole('Viewer') && (
+                <label
+                  className="flex items-center gap-2 rounded-xl border border-border bg-card px-5 py-2.5 font-semibold text-foreground cursor-pointer transition hover:bg-secondary"
+                  title="Import a course from another teacher's JSON snapshot"
+                >
+                  <Upload className="h-4 w-4" /> Import Course
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={handleImportFile}
+                    className="hidden"
+                  />
+                </label>
+              )}
+              {hasRole('Admin', 'Examination Team', 'Teacher') && (
+                <button
+                  onClick={() => setShowModal(true)}
+                  className="flex items-center gap-2 rounded-xl bg-primary px-6 py-3 font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition hover:bg-primary-hover"
+                >
+                  <Plus className="h-5 w-5" />
+                  Create Course
                 </button>
-              </div>
-            ) : importData ? (
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <p className="text-xs text-blue-400 font-semibold uppercase tracking-wider">Import Preview</p>
-                  <p className="text-lg font-bold text-slate-100">
-                    {importData.course.subject_name}
-                    <span className="ml-2 text-[11px] font-bold text-blue-400 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
-                      {importData.course.course_code}
-                    </span>
-                  </p>
-                  <p className="text-slate-400 text-sm">
-                    {importData.course.school} · {importData.course.department} · Sem {importData.course.semester} · {importData.course.num_cos} COs
-                  </p>
-                  <p className="text-slate-500 text-xs">
-                    Exported by <span className="text-slate-400">{importData.exportedBy}</span> on {new Date(importData.exportedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    {' · '}
-                    {(importData.marks?.mtt?.length || 0)} MTT · {(importData.marks?.ett?.length || 0)} ETT students
-                  </p>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={cancelImport}
-                    className="px-4 py-2 rounded-xl border border-slate-700 text-slate-400 hover:text-white text-sm transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleConfirmImport}
-                    disabled={importing}
-                    className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-bold transition"
-                  >
-                    {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    {importing ? 'Importing...' : 'Confirm Import'}
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        )}
-
-        {/* Courses Section */}
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-bold tracking-wide text-slate-200 flex items-center gap-2">
-              <BookOpen className="h-5 w-5 text-blue-400" />
-              Your Courses
-            </h3>
-            <button 
-              onClick={loadCourses}
-              className="p-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-white transition duration-200"
-              title="Refresh Courses"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
+              )}
+            </div>
           </div>
 
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-4 text-red-200 text-sm">
-              {error}
+          {/* Real metrics computed from the loaded course list */}
+          {!loading && courses.length > 0 && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+              <MetricCard icon={BookOpen} label="Total Courses" value={metrics.total} index={0} />
+              <MetricCard icon={CheckCircle2} label="Fully Configured" value={metrics.fullyConfigured} tone="success" index={1} />
+              <MetricCard icon={Layers} label="In Progress" value={metrics.inProgress} tone="warning" index={2} />
+              <MetricCard icon={ListChecks} label="Total COs Tracked" value={metrics.totalCos} tone="muted" index={3} />
             </div>
           )}
 
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3">
-              <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
-              <p className="text-slate-400 text-sm">Loading your courses...</p>
-            </div>
-          ) : courses.length === 0 ? (
-            <div className="border-2 border-dashed border-slate-700/60 rounded-2xl p-16 text-center space-y-4">
-              <div className="h-14 w-14 rounded-full bg-slate-800/80 mx-auto flex items-center justify-center text-slate-500 border border-slate-700/50">
-                <BookOpen className="h-6 w-6" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-lg font-bold text-slate-300">No courses created yet</p>
-                <p className="text-slate-500 text-sm max-w-sm mx-auto">Create your first subject course to start setting up CO-PO mappings and analyzing student performance outcomes.</p>
-              </div>
-              <button
-                onClick={() => setShowModal(true)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 hover:text-white font-medium transition duration-200"
+          {/* Import Preview Card */}
+          <AnimatePresence>
+            {(importData || importError || importSuccess) && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className={`mb-6 rounded-2xl border p-5 overflow-hidden ${
+                  importSuccess
+                    ? 'border-success/40 bg-success/5'
+                    : importError
+                      ? 'border-destructive/40 bg-destructive/5'
+                      : 'border-primary/30 bg-primary/5'
+                }`}
               >
-                <Plus className="h-4 w-4" /> Create a Course
+                {importSuccess ? (
+                  <div className="flex items-center gap-3 text-success">
+                    <CheckCircle2 className="h-5 w-5 shrink-0" />
+                    <p className="text-sm font-medium">{importSuccess}</p>
+                  </div>
+                ) : importError ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-destructive">{importError}</p>
+                    <button onClick={cancelImport} className="p-1 text-muted-foreground hover:text-foreground transition">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : importData ? (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-primary">Import Preview</p>
+                      <p className="text-lg font-bold text-foreground">
+                        {importData.course.subject_name}
+                        <span className="ml-2 rounded bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                          {importData.course.course_code}
+                        </span>
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {importData.course.school} · {importData.course.department} · Sem {importData.course.semester} · {importData.course.num_cos} COs
+                      </p>
+                      <p className="text-xs text-muted-foreground/80">
+                        Exported by <span className="text-muted-foreground">{importData.exportedBy}</span> on {new Date(importData.exportedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {' · '}
+                        {(importData.marks?.mtt?.length || 0)} MTT · {(importData.marks?.ett?.length || 0)} ETT students
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={cancelImport}
+                        className="rounded-xl border border-border px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleConfirmImport}
+                        disabled={importing}
+                        className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-sm font-bold text-primary-foreground transition hover:bg-primary-hover disabled:opacity-60"
+                      >
+                        {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                        {importing ? 'Importing...' : 'Confirm Import'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Courses Section */}
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-xl font-bold tracking-wide text-foreground">
+                <BookOpen className="h-5 w-5 text-primary" />
+                Your Courses
+              </h3>
+              <button
+                onClick={loadCourses}
+                className="rounded-lg border border-border p-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+                title="Refresh Courses"
+              >
+                <RefreshCw className="h-4 w-4" />
               </button>
             </div>
-          ) : (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {courses.map((course) => (
-                <CourseCard
-                  key={course.id}
-                  course={course}
-                  onClick={() => navigate(`/courses/${course.id}`)}
-                  onDelete={(e) => handleDeleteCourse(course.id, e)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </main>
 
-      {/* CREATE COURSE DIALOG MODAL */}
+            {loading ? (
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-[220px] rounded-2xl" />
+                ))}
+              </div>
+            ) : error ? (
+              <ErrorState description={error} onRetry={loadCourses} />
+            ) : courses.length === 0 ? (
+              <EmptyState
+                icon={BookOpen}
+                title="No courses created yet"
+                description="Create your first subject course to start setting up CO-PO mappings and analyzing student performance outcomes."
+                action={
+                  hasRole('Admin', 'Examination Team', 'Teacher') && (
+                    <button
+                      onClick={() => setShowModal(true)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-border bg-secondary px-5 py-2.5 font-medium text-secondary-foreground transition hover:bg-secondary/70"
+                    >
+                      <Plus className="h-4 w-4" /> Create a Course
+                    </button>
+                  )
+                }
+              />
+            ) : (
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {courses.map((course, i) => (
+                  <CourseCard
+                    key={course.id}
+                    course={course}
+                    index={i}
+                    onClick={() => navigate(`/courses/${course.id}`)}
+                    onDelete={(e) => handleDeleteCourse(course.id, e)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </main>
+      </PageTransition>
+
       <CreateCourseModal
         show={showModal}
         onClose={() => setShowModal(false)}
@@ -381,6 +382,17 @@ const DashboardPage = () => {
         academicStructure={academicStructure}
         handleChange={handleChange}
         handleSubmit={handleCreateCourse}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete this course?"
+        description="This permanently deletes the course along with all its CO configuration, CO-PO mapping, and student marks. This action is irreversible."
+        confirmLabel="Delete Course"
+        danger
+        loading={deleting}
+        onConfirm={confirmDeleteCourse}
+        onCancel={() => setPendingDeleteId(null)}
       />
     </div>
   );

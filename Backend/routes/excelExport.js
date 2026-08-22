@@ -2,15 +2,16 @@ const express = require('express');
 const ExcelJS = require('exceljs');
 const router = express.Router();
 const protect = require('../middlewares/authMiddleware');
+const { checkCoursePermission } = require('../middlewares/roleMiddleware');
 const { getCourseById } = require('../models/courseModel');
 const { getConfig, getMapping } = require('../models/mappingModel');
 const { getMarksByCourse } = require('../models/marksModel');
 const { buildCourseAttainmentSheet, buildCoPoAttainmentSheet } = require('../utils/excelHelpers');
 
-// GET /api/courses/:id/export-excel
-router.get('/courses/:id/export-excel', protect, async (req, res, next) => {
+// GET /api/courses/:id/export-excel — all course members (Teacher/Viewer/Admin/Exam Team) can export
+router.get('/courses/:id/export-excel', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
-    const course = await getCourseById(req.params.id, req.user.id);
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
