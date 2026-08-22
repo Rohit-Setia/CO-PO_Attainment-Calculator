@@ -1,14 +1,12 @@
 import { Save, Loader2 } from 'lucide-react';
+import { Skeleton } from '../ui/skeleton';
 
-// Heatmap intensity per correlation level — 0 = no fill, 3 = strongest —
-// so the matrix reads as a heatmap at a glance, not just a grid of numbers.
 const CELL_TONE = {
   0: 'bg-transparent text-muted-foreground',
   1: 'bg-primary/10 text-primary',
   2: 'bg-primary/25 text-primary',
   3: 'bg-primary/45 text-primary font-bold',
 };
-
 const LEVEL_LABEL = { 0: 'No correlation', 1: 'Low', 2: 'Medium', 3: 'High' };
 
 function MappingSelect({ value, onChange, disabled, label }) {
@@ -29,15 +27,23 @@ function MappingSelect({ value, onChange, disabled, label }) {
   );
 }
 
+// courseOutcomes: [{ id, co_number }] — the course's actual active COs, any count/numbering.
+// mappingValues: [{ co_id, po1..po12, pso1..pso3 }] and mappingAverages: { avg_po1..avg_pso3 }.
 export default function MappingTab({
-  course,
-  mapping,
+  courseOutcomes,
+  mappingValues,
+  mappingAverages,
   saving,
   handleMappingChange,
-  getColAvg,
   saveMappingMatrix,
   readOnly = false
 }) {
+  if (!courseOutcomes || !mappingValues) {
+    return <Skeleton className="h-96 rounded-2xl" />;
+  }
+
+  const valuesByCoId = new Map(mappingValues.map((v) => [v.co_id, v]));
+
   return (
     <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
       <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
@@ -57,74 +63,71 @@ export default function MappingTab({
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-border">
-        <table className="w-full border-collapse text-center text-sm">
-          <thead className="bg-muted/60 font-bold text-muted-foreground">
-            <tr>
-              <th className="w-24 border-b border-r border-border bg-muted/60 px-4 py-3 text-left">CO / PO</th>
-              {Array.from({ length: 12 }).map((_, i) => (
-                <th key={i} className="border-b border-r border-border px-2 py-3 text-xs">PO{i + 1}</th>
-              ))}
-              <th className="border-b border-r border-border px-2 py-3 text-xs">PSO1</th>
-              <th className="border-b border-r border-border px-2 py-3 text-xs">PSO2</th>
-              <th className="border-b border-border px-2 py-3 text-xs">PSO3</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: course.num_cos }).map((_, coIdx) => {
-              const coNum = coIdx + 1;
-              return (
-                <tr key={coNum} className="border-b border-border hover:bg-muted/30">
-                  <td className="border-r border-border bg-muted/20 px-4 py-3 text-left font-bold text-foreground">CO{coNum}</td>
-                  {Array.from({ length: 12 }).map((_, poIdx) => {
-                    const poNum = poIdx + 1;
-                    const key = `co${coNum}_po${poNum}`;
-                    return (
-                      <td key={poIdx} className="border-r border-border p-1">
-                        <MappingSelect
-                          disabled={readOnly}
-                          value={mapping[key]}
-                          label={`CO${coNum} → PO${poNum}`}
-                          onChange={(e) => handleMappingChange(coNum, `PO${poNum}`, e.target.value)}
-                        />
-                      </td>
-                    );
-                  })}
-                  {/* PSOs */}
-                  {['pso1', 'pso2', 'pso3'].map((psoKey, psoIdx) => {
-                    const key = `co${coNum}_${psoKey}`;
-                    return (
+      {courseOutcomes.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">Add at least one Course Outcome in Setup & Configs before mapping to POs.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-border">
+          <table className="w-full border-collapse text-center text-sm">
+            <thead className="bg-muted/60 font-bold text-muted-foreground">
+              <tr>
+                <th className="w-24 border-b border-r border-border bg-muted/60 px-4 py-3 text-left">CO / PO</th>
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <th key={i} className="border-b border-r border-border px-2 py-3 text-xs">PO{i + 1}</th>
+                ))}
+                <th className="border-b border-r border-border px-2 py-3 text-xs">PSO1</th>
+                <th className="border-b border-r border-border px-2 py-3 text-xs">PSO2</th>
+                <th className="border-b border-border px-2 py-3 text-xs">PSO3</th>
+              </tr>
+            </thead>
+            <tbody>
+              {courseOutcomes.map((co) => {
+                const row = valuesByCoId.get(co.id) || {};
+                return (
+                  <tr key={co.id} className="border-b border-border hover:bg-muted/30">
+                    <td className="border-r border-border bg-muted/20 px-4 py-3 text-left font-bold text-foreground">CO{co.co_number}</td>
+                    {Array.from({ length: 12 }).map((_, poIdx) => {
+                      const poNum = poIdx + 1;
+                      return (
+                        <td key={poIdx} className="border-r border-border p-1">
+                          <MappingSelect
+                            disabled={readOnly}
+                            value={row[`po${poNum}`]}
+                            label={`CO${co.co_number} → PO${poNum}`}
+                            onChange={(e) => handleMappingChange(co.id, `po${poNum}`, e.target.value)}
+                          />
+                        </td>
+                      );
+                    })}
+                    {['pso1', 'pso2', 'pso3'].map((psoKey, psoIdx) => (
                       <td key={psoKey} className={`${psoIdx < 2 ? 'border-r' : ''} border-border p-1`}>
                         <MappingSelect
                           disabled={readOnly}
-                          value={mapping[key]}
-                          label={`CO${coNum} → ${psoKey.toUpperCase()}`}
-                          onChange={(e) => handleMappingChange(coNum, psoKey.toUpperCase(), e.target.value)}
+                          value={row[psoKey]}
+                          label={`CO${co.co_number} → ${psoKey.toUpperCase()}`}
+                          onChange={(e) => handleMappingChange(co.id, psoKey, e.target.value)}
                         />
                       </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-            {/* Articulation Averages row */}
-            <tr className="border-t border-border bg-muted/30 font-bold">
-              <td className="border-r border-border px-4 py-3 text-left text-foreground">Average</td>
-              {Array.from({ length: 12 }).map((_, poIdx) => {
-                const poNum = poIdx + 1;
-                return (
-                  <td key={poIdx} className="border-r border-border px-2 py-3 text-xs text-warning">
-                    {getColAvg(`PO${poNum}`)}
-                  </td>
+                    ))}
+                  </tr>
                 );
               })}
-              <td className="border-r border-border px-2 py-3 text-xs text-warning">{getColAvg('PSO1')}</td>
-              <td className="border-r border-border px-2 py-3 text-xs text-warning">{getColAvg('PSO2')}</td>
-              <td className="px-2 py-3 text-xs text-warning">{getColAvg('PSO3')}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              <tr className="border-t border-border bg-muted/30 font-bold">
+                <td className="border-r border-border px-4 py-3 text-left text-foreground">Average</td>
+                {Array.from({ length: 12 }).map((_, poIdx) => (
+                  <td key={poIdx} className="border-r border-border px-2 py-3 text-xs text-warning">
+                    {(mappingAverages?.[`avg_po${poIdx + 1}`] ?? 0).toFixed(2)}
+                  </td>
+                ))}
+                {['pso1', 'pso2', 'pso3'].map((psoKey, i) => (
+                  <td key={psoKey} className={`${i < 2 ? 'border-r' : ''} border-border px-2 py-3 text-xs text-warning`}>
+                    {(mappingAverages?.[`avg_${psoKey}`] ?? 0).toFixed(2)}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
