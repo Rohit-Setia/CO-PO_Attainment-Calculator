@@ -15,9 +15,13 @@ This platform empowers administrators, examination teams, subject coordinators, 
   * User approval workflows (`is_active` validation) preventing unapproved access.
   * Dedicated **Admin Control Panel** (`/admin`) for account approvals, role assignments, and user management.
   * Fine-grained course access control with multi-user course assignments.
+* **🔢 Fully Dynamic Course Outcomes**:
+  * Add, describe, and configure Course Outcomes one at a time (up to 30) — never a fixed CO1-5/CO1-6 assumption. Each CO gets its own description and independent Internal/External maximum marks.
+  * Removing a CO archives it (never a silent hard delete) — any question, mark, or mapping already recorded against it is preserved.
+  * A new CO is immediately available everywhere: question mapping, CO-PO/PSO mapping, marks entry, attainment, charts, and exports all read the live CO list from the database, not a cached count.
 * **🎓 Comprehensive Course Workspace**:
-  * **Setup & Configurations**: Configure component weightages (e.g. 30% Internal MTT : 70% External ETT), threshold success criteria (e.g. 40%), Level 1/2/3 achievement percentages (e.g. 50%, 60%, 70%), CO maximum mark splits, and custom CO learning outcome statements.
-  * **CO-PO Articulation Matrix**: Map Course Outcomes ($CO_1 \dots CO_6$) to 12 Program Outcomes ($PO_1 \dots PO_{12}$) and 3 Program Specific Outcomes ($PSO_1 \dots PSO_3$) with auto-computed average correlation ratings.
+  * **Setup & Configurations**: Configure component weightages (e.g. 30% Internal MTT : 70% External ETT), threshold success criteria (e.g. 40%), and Level 1/2/3 achievement percentages (e.g. 50%, 60%, 70%).
+  * **CO-PO Articulation Matrix**: Map every active Course Outcome to 12 Program Outcomes ($PO_1 \dots PO_{12}$) and 3 Program Specific Outcomes ($PSO_1 \dots PSO_3$) with live-computed average correlation ratings.
   * **Two Robust Data Entry Modes**:
     * **Question-Wise Mode**: Configure 1–30 questions, assign individual question maximums, tag specific COs, and enter question marks with automated auto-summing and real-time boundary validation.
     * **Direct CO-Wise Mode**: Enter consolidated student totals per CO column with live percentage calculations.
@@ -82,10 +86,11 @@ CO-PO Attainment/
 │   │   │   │                            # Dialog, Table, Tabs, Select, Tooltip, Skeleton, EmptyState,
 │   │   │   │                            # ErrorState, MetricCard, ConfirmDialog, ThemeToggle, PageTransition
 │   │   │   ├── workspace/
-│   │   │   │   ├── AttainmentTab.jsx    # Attainment Metrics, Level Table & Charts
-│   │   │   │   ├── ConfigTab.jsx        # Target Criteria & CO Max Splits Form
-│   │   │   │   ├── MappingTab.jsx       # CO-PO / PSO Articulation Matrix Heatmap
-│   │   │   │   └── MarksTab.jsx         # Marks Spreadsheet, MTT/ETT & Mode Switcher
+│   │   │   │   ├── AttainmentTab.jsx    # Attainment Metrics, Level Table & Charts (dynamic CO rows)
+│   │   │   │   ├── ConfigTab.jsx        # Dynamic CO list (add/edit/archive) + attainment targets
+│   │   │   │   ├── MappingTab.jsx       # CO-PO / PSO Articulation Matrix Heatmap (dynamic CO rows)
+│   │   │   │   ├── MarksTab.jsx         # Marks Spreadsheet, MTT/ETT & Mode Switcher
+│   │   │   │   └── QuestionConfigPanel.jsx # Question Paper Configuration — question count, question→CO mapping, max marks
 │   │   │   ├── QuestionWiseTable.jsx    # Question Marks Entry Spreadsheet
 │   │   │   └── StudentTable.jsx         # Direct CO Marks Entry Spreadsheet
 │   │   ├── context/
@@ -232,8 +237,13 @@ To activate your initial Administrator account:
 | `GET` | `/api/courses` | Retrieve courses (filtered by user role and assignments) | Authenticated |
 | `POST` | `/api/courses` | Create a new course with default configs | Admin, Exam Team, Teacher |
 | `DELETE` | `/api/courses/:id` | Delete a course and all associated data | Admin, Course Creator |
-| `GET` | `/api/courses/:id/config` | Retrieve course configuration & CO descriptions | Assigned / Admin |
-| `POST` | `/api/courses/:id/config` | Save threshold criteria, weights, & CO descriptions | Admin, Exam Team, Teacher |
+| `GET` | `/api/courses/:id/config` | Retrieve course, threshold/weight config, and the active CO list | Assigned / Admin |
+| `POST` | `/api/courses/:id/config` | Save threshold criteria & weights | Admin, Exam Team, Teacher |
+| `POST` | `/api/courses/:id/outcomes` | Add a new Course Outcome (auto-numbered) | Admin, Exam Team, Teacher |
+| `PUT` | `/api/courses/:id/outcomes/:coId` | Update a CO's description / max marks | Admin, Exam Team, Teacher |
+| `DELETE` | `/api/courses/:id/outcomes/:coId` | Archive a CO (never a hard delete) | Admin, Exam Team, Teacher |
+| `GET` | `/api/courses/:id/questions?examType=` | Fetch the Question Paper Configuration for MTT or ETT | Assigned / Admin |
+| `POST` | `/api/courses/:id/questions` | Save the Question Paper Configuration (question count, question→CO mapping, max marks) — validates CO allocation server-side | Admin, Exam Team, Teacher |
 | `GET` | `/api/courses/:id/mapping` | Fetch CO-PO articulation matrix | Assigned / Admin |
 | `POST` | `/api/courses/:id/mapping` | Save CO-PO articulation matrix | Admin, Exam Team, Teacher |
 | `GET` | `/api/courses/:id/marks` | Fetch normalized student marks (MTT & ETT) | Assigned / Admin |
@@ -282,7 +292,7 @@ This means every PO/PSO attainment value for a given course shares the same unde
 The smart parser automatically maps incoming spreadsheets by scanning header names (case-insensitive):
 * **Registration / Roll Number**: `roll`, `reg`, `reg no`, `registration`, `roll no`, `id`
 * **Student Name**: `name`, `student name`, `student_name`, `candidate`
-* **Course Outcomes (CO-Wise)**: `co1`, `co2`, `co3`, `co4`, `co5`, `co6`
+* **Course Outcomes (CO-Wise)**: `co1`, `co2`, `co3`, ... matched against whichever COs the course actually has configured (any count, not capped at 6)
 * **Question Columns (Question-Wise)**: `q1`, `q2`, `q3` ... `q30` (or `question 1`, `question_1`)
 
 ---

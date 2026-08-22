@@ -1,8 +1,11 @@
 import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+import { Info } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
+import EmptyState from '../ui/EmptyState';
 
 export default function AttainmentTab({
   attainment,
+  courseOutcomes,
   getCOBarChartData,
   getPORadarChartData
 }) {
@@ -16,10 +19,21 @@ export default function AttainmentTab({
     borderRadius: 8,
   };
 
+  if (!courseOutcomes || courseOutcomes.length === 0) {
+    return (
+      <EmptyState
+        icon={Info}
+        title="Complete course configuration before calculating attainment."
+        description="Add at least one Course Outcome in Setup & Configs to begin."
+      />
+    );
+  }
+
+  const hasData = attainment?.hasData;
+
   return (
     <div className="space-y-8">
-      {/* Overall Attainment Score Card */}
-      {attainment && (
+      {hasData ? (
         <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-4">
           <div className="flex min-h-[120px] flex-col justify-between rounded-2xl border border-border bg-card p-6">
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Combined Direct CO Attainment</p>
@@ -49,16 +63,19 @@ export default function AttainmentTab({
             </div>
           </div>
         </div>
+      ) : (
+        <EmptyState
+          icon={Info}
+          title="No attainment data available yet."
+          description="Enter and save MTT/ETT marks to generate attainment."
+        />
       )}
 
-      {/* Attainment Levels Grid */}
       <div className="grid gap-6 md:grid-cols-2">
-
-        {/* CO Attainment Level Table */}
         <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
           <h4 className="border-b border-border pb-2 text-lg font-bold text-foreground">Course Outcome (CO) Attainment Levels</h4>
 
-          {attainment ? (
+          {hasData ? (
             <div className="overflow-x-auto rounded-xl border border-border">
               <table className="w-full border-collapse text-center text-sm">
                 <thead className="bg-muted/60 font-bold text-muted-foreground">
@@ -70,12 +87,11 @@ export default function AttainmentTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.from({ length: attainment.numCos }).map((_, i) => {
-                    const coKey = `CO${i + 1}`;
-                    const val = attainment.combinedCO[coKey] || {};
+                  {courseOutcomes.map((co) => {
+                    const val = attainment.combinedCO[co.id] || {};
                     return (
-                      <tr key={coKey} className="border-b border-border hover:bg-muted/30">
-                        <td className="border-r border-border bg-muted/20 px-4 py-2 text-left font-bold text-foreground">{coKey}</td>
+                      <tr key={co.id} className="border-b border-border hover:bg-muted/30">
+                        <td className="border-r border-border bg-muted/20 px-4 py-2 text-left font-bold text-foreground">CO{co.co_number}</td>
                         <td className="border-r border-border px-4 py-2 text-foreground">{val.internalLevel ?? 0}</td>
                         <td className="border-r border-border px-4 py-2 text-foreground">{val.externalLevel ?? 0}</td>
                         <td className="bg-primary/5 px-4 py-2 font-semibold text-primary">{val.combinedLevel ?? 0}</td>
@@ -90,10 +106,9 @@ export default function AttainmentTab({
           )}
         </div>
 
-        {/* CO Attainment Levels Bar Chart */}
         <div className="flex min-h-[300px] flex-col justify-between rounded-2xl border border-border bg-card p-6">
           <h4 className="border-b border-border pb-2 text-lg font-bold text-foreground">CO Component Comparison</h4>
-          {attainment ? (
+          {hasData ? (
             <div className="mt-4 h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={getCOBarChartData()}>
@@ -114,15 +129,11 @@ export default function AttainmentTab({
         </div>
       </div>
 
-      {/* PO Attainment & Radar Chart */}
-      {attainment && (
+      {hasData && (
         <div className="grid gap-6 md:grid-cols-3">
-
-          {/* PO/PSO Attainment List */}
           <div className="space-y-4 rounded-2xl border border-border bg-card p-6 md:col-span-2">
             <h4 className="border-b border-border pb-2 text-lg font-bold text-foreground">Program Outcome (PO/PSO) Attainment Summary</h4>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-              {/* POs */}
               {Array.from({ length: 12 }).map((_, i) => {
                 const poKey = `po${i + 1}`;
                 const val = attainment.poResults[poKey] || 0.00;
@@ -133,7 +144,6 @@ export default function AttainmentTab({
                   </div>
                 );
               })}
-              {/* PSOs */}
               {Array.from({ length: 3 }).map((_, i) => {
                 const psoKey = `pso${i + 1}`;
                 const val = attainment.poResults[psoKey] || 0.00;
@@ -147,7 +157,6 @@ export default function AttainmentTab({
             </div>
           </div>
 
-          {/* PO Radar Chart Profile */}
           <div className="flex min-h-[300px] flex-col justify-between rounded-2xl border border-border bg-card p-6">
             <h4 className="border-b border-border pb-2 text-lg font-bold text-foreground">PO Attainment Profile</h4>
             <div className="mt-4 h-64 w-full">
