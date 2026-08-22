@@ -1,7 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import './App.css';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import DashboardPage from './Pages/DashboardPage';
 import LoginPage from './Pages/LoginPage';
 import SignupPage from './Pages/SignupPage';
@@ -46,12 +48,32 @@ const AppRoutes = () => {
   );
 };
 
+const ThemedToaster = () => {
+  const { theme } = useTheme();
+  return (
+    <Toaster
+      theme={theme}
+      position="top-right"
+      toastOptions={{
+        style: {
+          background: 'hsl(var(--card))',
+          border: '1px solid hsl(var(--border))',
+          color: 'hsl(var(--card-foreground))',
+        },
+      }}
+    />
+  );
+};
+
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppRoutes />
+          <ThemedToaster />
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

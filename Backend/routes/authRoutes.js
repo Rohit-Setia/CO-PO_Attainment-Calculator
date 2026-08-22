@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { body } = require('express-validator');
 const {
   registerTeacher,
@@ -13,8 +14,19 @@ const { authorizeRoles } = require('../middlewares/roleMiddleware');
 
 const router = express.Router();
 
+// Throttle brute-force login/signup attempts per IP; failed requests aren't skipped
+// so repeated wrong-password guesses count toward the limit too.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many attempts. Please try again in a few minutes.' },
+});
+
 router.post(
   '/auth/signup',
+  authLimiter,
   [
     body('name').trim().notEmpty().withMessage('Name is required').isLength({ min: 3 }).withMessage('Name must be at least 3 characters'),
     body('email').trim().isEmail().withMessage('Valid email is required').normalizeEmail(),
@@ -30,6 +42,7 @@ router.post(
 
 router.post(
   '/auth/login',
+  authLimiter,
   [
     body('email').trim().isEmail().withMessage('Valid email is required').normalizeEmail(),
     body('password').notEmpty().withMessage('Password is required'),

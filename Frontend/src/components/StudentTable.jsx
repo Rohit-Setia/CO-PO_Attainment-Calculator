@@ -1,4 +1,3 @@
-import React from "react";
 import { Trash2 } from "lucide-react";
 
 /**
@@ -19,40 +18,40 @@ export default function StudentTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm border-collapse min-w-max">
-        <thead className="bg-slate-900 text-slate-300">
+      <table className="w-full min-w-max border-collapse text-sm">
+        <thead className="bg-muted/60 text-muted-foreground">
           <tr>
-            <th className="border-r border-b border-slate-700/60 px-3 py-3 text-left w-12 sticky left-0 bg-slate-900 z-10">Sr</th>
-            <th className="border-r border-b border-slate-700/60 px-3 py-3 text-left w-36 sticky left-12 bg-slate-900 z-10">Reg No</th>
-            <th className="border-r border-b border-slate-700/60 px-3 py-3 text-left w-48">Name</th>
-            <th className="border-r border-b border-slate-700/60 px-3 py-3 text-center font-bold text-blue-400 w-20">Total</th>
+            <th className="sticky left-0 z-10 w-12 border-b border-r border-border bg-muted px-3 py-3 text-left">Sr</th>
+            <th className="sticky left-12 z-10 w-36 border-b border-r border-border bg-muted px-3 py-3 text-left">Reg No</th>
+            <th className="w-48 border-b border-r border-border px-3 py-3 text-left">Name</th>
+            <th className="w-20 border-b border-r border-border px-3 py-3 text-center font-bold text-primary">Total</th>
             {coList.map((co) => (
-              <th key={co} className="border-r border-b border-slate-700/60 px-3 py-3 text-center text-xs w-24">
-                <div className="flex flex-col gap-0.5 items-center">
-                  <span className="font-bold text-slate-200">{co.toUpperCase()}</span>
-                  <span className="text-slate-500 text-[10px]">/{coMax[co] ?? '-'}</span>
+              <th key={co} className="w-24 border-b border-r border-border px-3 py-3 text-center text-xs">
+                <div className="flex flex-col items-center gap-0.5">
+                  <span className="font-bold text-foreground">{co.toUpperCase()}</span>
+                  <span className="text-[10px] text-muted-foreground">/{coMax[co] ?? '-'}</span>
                 </div>
               </th>
             ))}
             {coList.map((co) => (
-              <th key={co + "%"} className="border-r border-b border-slate-700/60 px-3 py-3 text-center text-xs w-20 text-emerald-400">
+              <th key={co + "%"} className="w-20 border-b border-r border-border px-3 py-3 text-center text-xs text-success">
                 {co.toUpperCase()}%
               </th>
             ))}
             {/* Hide delete column header for Viewers */}
-            {!readOnly && <th className="border-b border-slate-700/60 px-3 py-3 text-center w-20">Action</th>}
+            {!readOnly && <th className="w-20 border-b border-border px-3 py-3 text-center">Action</th>}
           </tr>
         </thead>
 
         <tbody>
           {students.map((s, i) => (
-            <tr key={s.id || i} className="border-b border-slate-700/40 hover:bg-slate-800/20 transition">
+            <tr key={s.id || i} className="border-b border-border transition hover:bg-muted/30">
               {/* Serial */}
-              <td className="border-r border-slate-700/40 px-3 py-2 text-slate-400 text-center sticky left-0 bg-slate-900/80 z-10">
+              <td className="sticky left-0 z-10 border-r border-border bg-card px-3 py-2 text-center text-muted-foreground">
                 {i + 1}
               </td>
               {/* Reg No */}
-              <td className="border-r border-slate-700/40 px-2 py-2 sticky left-12 bg-slate-900/80 z-10">
+              <td className="sticky left-12 z-10 border-r border-border bg-card px-2 py-2">
                 <input
                   type="text"
                   value={s.roll || s.reg_no || ""}
@@ -62,28 +61,28 @@ export default function StudentTable({
                   }}
                   placeholder="Reg No"
                   disabled={readOnly}
-                  className={`w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-default' : ''}`}
+                  className="w-full rounded border border-input bg-background px-2 py-1 text-xs text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-default disabled:opacity-60"
                 />
               </td>
               {/* Name */}
-              <td className="border-r border-slate-700/40 px-2 py-2">
+              <td className="border-r border-border px-2 py-2">
                 <input
                   type="text"
                   value={s.name || ""}
                   onChange={(e) => updateStudentInfo(i, "name", e.target.value)}
                   placeholder="Student Name"
                   disabled={readOnly}
-                  className={`w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${readOnly ? 'opacity-60 cursor-default' : ''}`}
+                  className="w-full rounded border border-input bg-background px-2 py-1 text-xs text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-default disabled:opacity-60"
                 />
               </td>
               {/* Total Marks (computed, read-only) */}
-              <td className="border-r border-slate-700/40 px-3 py-2 text-center font-bold text-blue-400 text-sm">
+              <td className="border-r border-border px-3 py-2 text-center text-sm font-bold text-primary">
                 {parseFloat(s.total_marks ?? s.totalMarks ?? 0).toFixed(1)}
               </td>
 
               {/* CO Marks columns (editable) */}
               {coList.map((co) => (
-                <td key={co} className="border-r border-slate-700/40 px-2 py-2 text-center">
+                <td key={co} className="border-r border-border px-2 py-2 text-center">
                   <input
                     type="number"
                     min="0"
@@ -91,11 +90,11 @@ export default function StudentTable({
                     value={s[co] !== undefined && s[co] !== null && s[co] !== '' ? s[co] : ""}
                     onChange={(e) => updateMark(i, co, e.target.value)}
                     disabled={readOnly}
-                    className={`w-16 bg-slate-800 border rounded px-1.5 py-1 text-center text-xs text-slate-100 focus:border-blue-500 focus:outline-none ${
+                    className={`w-16 rounded border px-1.5 py-1 text-center text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring ${
                       parseFloat(s[co]) > (coMax[co] || Infinity)
-                        ? 'border-red-500 bg-red-900/20 text-red-300'
-                        : 'border-slate-700'
-                    } ${readOnly ? 'opacity-60 cursor-default' : ''}`}
+                        ? 'border-destructive bg-destructive/10 text-destructive'
+                        : 'border-input bg-background focus:border-ring'
+                    } ${readOnly ? 'cursor-default opacity-60' : ''}`}
                   />
                 </td>
               ))}
@@ -106,7 +105,7 @@ export default function StudentTable({
                 const val = parseFloat(s[co]) || 0;
                 const pct = max > 0 ? ((val / max) * 100).toFixed(1) : '0.0';
                 return (
-                  <td key={co + "percent"} className="border-r border-slate-700/40 px-3 py-2 text-center text-xs text-emerald-400">
+                  <td key={co + "percent"} className="border-r border-border px-3 py-2 text-center text-xs text-success">
                     {pct}%
                   </td>
                 );
@@ -117,7 +116,7 @@ export default function StudentTable({
                 <td className="px-2 py-2 text-center">
                   <button
                     onClick={() => removeStudent(i)}
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition"
+                    className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
                     title="Remove row"
                   >
                     <Trash2 className="h-4 w-4" />
