@@ -42,6 +42,7 @@ const {
 const { calculateCourseAttainment } = require('../utils/attainmentCalculator');
 const pool = require('../config/db');
 const { findUserByEmail } = require('../models/userModel');
+const { logAction } = require('../models/adminAuditModel');
 
 const DEFAULT_CONFIG = {
   threshold_percent_internal: 40.0,
@@ -174,6 +175,25 @@ router.delete('/courses/:id', protect, checkCoursePermission(['Teacher']), async
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
     res.json({ success: true, message: 'Course deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Section 21 — soft lifecycle status. Historical courses with marks stay reportable; this is
+// the preferred alternative to deleting a course, matching the pattern already used for
+// Schools/Departments/Programs/Sessions/Classes.
+router.put('/courses/:id/status', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+    const { status } = req.body;
+    if (!['Active', 'Inactive', 'Archived'].includes(status)) {
+      return res.status(400).json({ success: false, message: "status must be 'Active', 'Inactive', or 'Archived'." });
+    }
+    await pool.query('UPDATE courses SET status = ? WHERE id = ?', [status, course.id]);
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update_status', entityType: 'course', entityId: course.id, details: { from: course.status, to: status } });
+    res.json({ success: true, message: `Course marked ${status}.` });
   } catch (err) {
     next(err);
   }
@@ -892,21 +912,31 @@ router.put('/courses/:id/academic-map', protect, checkCoursePermission(['Teacher
     const course = await loadCourseOr404(req, res);
     if (!course) return;
 
-    const { programId, sessionId, semester } = req.body;
+    // Section 20 — Legacy Course Mapping reconciliation. `department`/`school` let an
+    // administrator explicitly overwrite the free-text fields to match the linked hierarchy
+    // (or vice versa, by instead calling this with a new programId) — never automatic, and
+    // always audited so what changed and by whom is traceable.
+    const { programId, sessionId, semester, department, school } = req.body;
     const sets = [];
     const values = [];
-    // Only write FKs that were explicitly provided; sending null un-maps deliberately.
     if (programId !== undefined) { sets.push('program_id = ?'); values.push(programId); }
     if (sessionId !== undefined) { sets.push('academic_session_id = ?'); values.push(sessionId); }
     if (semester !== undefined) { sets.push('semester = ?'); values.push(semester); }
+    if (department !== undefined) { sets.push('department = ?'); values.push(department); }
+    if (school !== undefined) { sets.push('school = ?'); values.push(school); }
     if (sets.length === 0) {
-      return res.status(400).json({ success: false, message: 'Provide at least one of programId, sessionId, semester.' });
+      return res.status(400).json({ success: false, message: 'Provide at least one of programId, sessionId, semester, department, school.' });
     }
     values.push(course.id);
     await academicPool.query(`UPDATE courses SET ${sets.join(', ')} WHERE id = ?`, values);
+    await logAction({
+      actorUserId: req.user.id, actorName: req.user.email, action: 'reconcile_mapping',
+      entityType: 'course', entityId: course.id,
+      details: { before: { department: course.department, school: course.school, program_id: course.program_id }, requested: req.body },
+    });
 
     const [updated] = await academicPool.query(
-      'SELECT id, course_code, subject_name, program_id, academic_session_id, semester FROM courses WHERE id = ?',
+      'SELECT id, course_code, subject_name, school, department, program_id, academic_session_id, semester FROM courses WHERE id = ?',
       [course.id],
     );
     res.json({ success: true, message: 'Course academic context updated.', data: updated[0] });

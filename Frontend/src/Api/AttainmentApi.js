@@ -10,6 +10,41 @@ export const fetchSessions = () => axiosClient.get('/sessions');
 export const fetchClasses = (filters = {}) =>
   axiosClient.get('/classes', { params: filters });
 export const fetchClassStudents = (classId) => axiosClient.get(`/classes/${classId}/students`);
+export const fetchBranches = (departmentId) =>
+  axiosClient.get('/branches', { params: departmentId ? { departmentId } : {} });
+
+// ── Academic Administration (Phase 7) — Schools/Departments/Branches/Programs/
+// Sessions/Classes CRUD. Backend enforces Admin (unscoped) / School Admin (own school) /
+// Department Admin (own department) — the frontend only hides actions the role can't take.
+export const createSchool = (payload) => axiosClient.post('/schools', payload);
+export const updateSchool = (id, payload) => axiosClient.put(`/schools/${id}`, payload);
+
+export const createDepartment = (payload) => axiosClient.post('/departments', payload);
+export const updateDepartment = (id, payload) => axiosClient.put(`/departments/${id}`, payload);
+
+export const createBranch = (payload) => axiosClient.post('/branches', payload);
+
+export const createProgram = (payload) => axiosClient.post('/programs', payload);
+export const updateProgram = (id, payload) => axiosClient.put(`/programs/${id}`, payload);
+
+export const createSession = (payload) => axiosClient.post('/sessions', payload);
+export const updateSession = (id, payload) => axiosClient.put(`/sessions/${id}`, payload);
+
+export const createClass = (payload) => axiosClient.post('/classes', payload);
+export const updateClass = (id, payload) => axiosClient.put(`/classes/${id}`, payload);
+
+// ── Student Master administration (Phase 7) ────────────────────────────────
+export const fetchStudents = (filters = {}) => axiosClient.get('/students', { params: filters });
+export const fetchStudent = (id) => axiosClient.get(`/students/${id}`);
+export const createStudent = (payload) => axiosClient.post('/students', payload);
+export const updateStudentRecord = (id, payload) => axiosClient.put(`/students/${id}`, payload);
+export const mapStudentToClass = (id, payload) => axiosClient.post(`/students/${id}/map`, payload);
+
+// ── Course administration (Phase 7) ────────────────────────────────────────
+export const updateCourseStatus = (id, status) => axiosClient.put(`/courses/${id}/status`, { status });
+export const assignFacultyToCourse = (id, payload) => axiosClient.post(`/courses/${id}/assign`, payload);
+export const removeFacultyFromCourse = (id, userId) => axiosClient.delete(`/courses/${id}/assign/${userId}`);
+export const fetchCourseAssignments = (id) => axiosClient.get(`/courses/${id}/assignments`);
 
 // ── Course enrollment ──────────────────────────────────────────────────────
 export const fetchCourseEnrollment = (courseId) => axiosClient.get(`/courses/${courseId}/enrollment`);

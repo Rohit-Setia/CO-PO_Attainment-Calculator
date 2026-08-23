@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, BookOpen, Users, ClipboardList, Grid3x3, Target,
   Calculator, FileBarChart, Upload, Settings, ShieldCheck,
-  HelpCircle, LogOut, X,
+  HelpCircle, LogOut, X, Building2, UserCog,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -138,6 +138,35 @@ export default function Sidebar({ open, onClose }) {
               </div>
             ))}
 
+            {/* Administration — University Admin (unscoped) / School Admin (own School) /
+                Department Admin (own Department); the backend enforces the actual scope on
+                every request these pages make, this only decides whether to show the links. */}
+            {hasRole('Admin', 'School Admin', 'Department Admin') && (
+              <div>
+                <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.15em] text-sidebar-muted/60">
+                  Administration
+                </p>
+                <div className="space-y-0.5">
+                  <NavLink to="/admin/academic-structure" className={navLinkClass} onClick={onClose}>
+                    <Building2 className="h-4 w-4 shrink-0" />
+                    Academic Structure
+                  </NavLink>
+                  <NavLink to="/admin/student-master" className={navLinkClass} onClick={onClose}>
+                    <UserCog className="h-4 w-4 shrink-0" />
+                    Student Master
+                  </NavLink>
+                  <NavLink to="/admin/student-mapping" className={navLinkClass} onClick={onClose}>
+                    <Users className="h-4 w-4 shrink-0" />
+                    Student Mapping
+                  </NavLink>
+                  <NavLink to="/admin/course-enrollment" className={navLinkClass} onClick={onClose}>
+                    <BookOpen className="h-4 w-4 shrink-0" />
+                    Course Enrollment
+                  </NavLink>
+                </div>
+              </div>
+            )}
+
             {/* System section */}
             <div>
               <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.15em] text-sidebar-muted/60">
@@ -153,20 +182,10 @@ export default function Sidebar({ open, onClose }) {
                   Help &amp; Support
                 </NavLink>
                 {hasRole('Admin') && (
-                  <>
-                    <NavLink to="/admin" className={navLinkClass} onClick={onClose}>
-                      <ShieldCheck className="h-4 w-4 shrink-0" />
-                      User Management
-                    </NavLink>
-                    <NavLink to="/admin/student-mapping" className={navLinkClass} onClick={onClose}>
-                      <Users className="h-4 w-4 shrink-0" />
-                      Student Mapping
-                    </NavLink>
-                    <NavLink to="/admin/course-enrollment" className={navLinkClass} onClick={onClose}>
-                      <BookOpen className="h-4 w-4 shrink-0" />
-                      Course Enrollment
-                    </NavLink>
-                  </>
+                  <NavLink to="/admin" className={navLinkClass} onClick={onClose}>
+                    <ShieldCheck className="h-4 w-4 shrink-0" />
+                    User Management
+                  </NavLink>
                 )}
               </div>
             </div>

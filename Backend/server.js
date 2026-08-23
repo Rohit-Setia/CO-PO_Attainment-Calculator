@@ -10,16 +10,20 @@ const academicRouter = require('./routes/academicRoutes');
 const studentRouter = require('./routes/studentRoutes');
 const errorHandler = require('./middlewares/errorMiddleware');
 
-const { createUsersTable } = require('./models/userModel');
-const { createCoursesTable, createUserCourseAssignmentsTable } = require('./models/courseModel');
+const { createUsersTable, addRoleScopingColumns } = require('./models/userModel');
+const { createCoursesTable, createUserCourseAssignmentsTable, addCourseStatusColumn } = require('./models/courseModel');
 const { createMappingTables, createCoPoValueTable, migrateLegacyMappingToCoPoValues } = require('./models/mappingModel');
 const {
   createMarksTable, createStudentCoMarksTable, createStudentQuestionMarksTable, migrateLegacyStudentMarks,
 } = require('./models/marksModel');
 const { createCourseOutcomeTables, migrateLegacyCoursesToOutcomes } = require('./models/courseOutcomeModel');
 const { createQuestionConfigTable, migrateLegacyQuestionConfigs } = require('./models/questionConfigModel');
-const { createUniversityTables, migrateLegacyUniversityData, normalizeLegacyStudentsTable, normalizeProgramsTable, normalizeLegacyStudentSchemaForMaster } = require('./models/universityModel');
+const {
+  createUniversityTables, migrateLegacyUniversityData, normalizeLegacyStudentsTable, normalizeProgramsTable,
+  normalizeLegacyStudentSchemaForMaster, addProgramDegreeColumn, addPhase7DuplicatePreventionConstraints,
+} = require('./models/universityModel');
 const { createStudentTables, migrateLegacyStudentData } = require('./models/studentModel');
+const { createAdminAuditTable } = require('./models/adminAuditModel');
 
 const app = express();
 
@@ -75,11 +79,15 @@ const PORT = process.env.PORT || 5000;
 // migrated) and never modifies or drops the legacy tables/columns it reads from.
 createUsersTable()
   .then(() => createUniversityTables())
+  .then(() => addRoleScopingColumns())
+  .then(() => addPhase7DuplicatePreventionConstraints())
   .then(() => createStudentTables())
   .then(() => createCoursesTable())
+  .then(() => addCourseStatusColumn())
   .then(() => migrateLegacyUniversityData())
   .then(() => normalizeLegacyStudentsTable())
   .then(() => normalizeProgramsTable())
+  .then(() => addProgramDegreeColumn())
   .then(() => normalizeLegacyStudentSchemaForMaster())
   .then(() => createUserCourseAssignmentsTable())
   .then(() => createMappingTables())
@@ -94,6 +102,7 @@ createUsersTable()
   .then(() => createStudentCoMarksTable())
   .then(() => createStudentQuestionMarksTable())
   .then(() => migrateLegacyStudentMarks())
+  .then(() => createAdminAuditTable())
   .then(() => {
     app.listen(PORT, () => console.log('Server running on', PORT));
   })

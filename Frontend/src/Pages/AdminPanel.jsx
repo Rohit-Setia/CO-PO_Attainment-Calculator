@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePageHeader } from '../context/PageHeaderContext';
 import { Users, ShieldCheck, Loader2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import { fetchAllUsers, updateUserRoleStatus } from '../Api/authApi';
+import { fetchSchools, fetchDepartments } from '../Api/AttainmentApi';
 
 import MetricCard from '../components/ui/MetricCard';
 import EmptyState from '../components/ui/EmptyState';
@@ -15,15 +16,44 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '.
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select';
 import PageTransition from '../components/ui/PageTransition';
 
-const ROLES = ['Admin', 'Examination Team', 'Teacher', 'Viewer'];
+// Phase 7 — School Admin / Department Admin are genuinely new roles (documented in
+// userModel.js's addRoleScopingColumns migration), reusing this same existing user-management
+// screen rather than a separate one. Each needs one more piece of information — which School
+// or Department they administer — captured via the pickers rendered only for that row.
+const ROLES = ['Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin'];
 
 const AdminPanel = () => {
   const { user } = useAuth();
 
   const [users, setUsers] = useState([]);
+  const [schools, setSchools] = useState([]);
+  const [departmentsBySchool, setDepartmentsBySchool] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState({}); // { [userId]: true } for per-row loading
+  // School Admin / Department Admin need a second piece of information (which School/
+  // Department) before the change is valid, so a role switch to either is held locally until
+  // the scope picker is also chosen — never submitted as an incomplete, invalid update.
+  const [pendingRole, setPendingRole] = useState({});
+
+  useEffect(() => {
+    fetchSchools().then((res) => setSchools(res.data.data || [])).catch(() => setSchools([]));
+  }, []);
+
+  // Departments are loaded lazily, all-schools-at-once, since a Department Admin picker needs
+  // every department regardless of which school it belongs to.
+  useEffect(() => {
+    fetchDepartments().then((res) => {
+      const bySchool = {};
+      (res.data.data || []).forEach((d) => {
+        bySchool[d.school_id] = bySchool[d.school_id] || [];
+        bySchool[d.school_id].push(d);
+      });
+      setDepartmentsBySchool(bySchool);
+    }).catch(() => setDepartmentsBySchool({}));
+  }, []);
+
+  const allDepartments = Object.values(departmentsBySchool).flat();
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -127,6 +157,7 @@ const AdminPanel = () => {
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
+                    <TableHead>Scope</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Joined</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -136,6 +167,7 @@ const AdminPanel = () => {
                   {users.map((u, i) => {
                     const isSelf = u.id === user?.id;
                     const isBusy = saving[u.id];
+                    const effectiveRole = pendingRole[u.id] ?? u.role;
                     return (
                       <motion.tr
                         key={u.id}
@@ -151,9 +183,18 @@ const AdminPanel = () => {
                         <TableCell className="text-xs text-muted-foreground">{u.email}</TableCell>
                         <TableCell>
                           <Select
-                            value={u.role}
+                            value={effectiveRole}
                             disabled={isSelf || isBusy}
-                            onValueChange={(value) => updateUser(u.id, { role: value })}
+                            onValueChange={(value) => {
+                              if (value === 'School Admin' || value === 'Department Admin') {
+                                // Held locally — submitted only once the scope picker below is set,
+                                // so an incomplete (schoolId/departmentId-less) update never fires.
+                                setPendingRole((prev) => ({ ...prev, [u.id]: value }));
+                              } else {
+                                setPendingRole((prev) => { const next = { ...prev }; delete next[u.id]; return next; });
+                                updateUser(u.id, { role: value });
+                              }
+                            }}
                           >
                             <SelectTrigger className="h-8 w-40 text-xs">
                               <SelectValue />
@@ -164,6 +205,47 @@ const AdminPanel = () => {
                               ))}
                             </SelectContent>
                           </Select>
+                        </TableCell>
+                        <TableCell>
+                          {effectiveRole === 'School Admin' ? (
+                            <Select
+                              value={u.role === 'School Admin' && u.school_id ? String(u.school_id) : ''}
+                              disabled={isSelf || isBusy}
+                              onValueChange={(value) => {
+                                setPendingRole((prev) => { const next = { ...prev }; delete next[u.id]; return next; });
+                                updateUser(u.id, { role: 'School Admin', school_id: Number(value) });
+                              }}
+                            >
+                              <SelectTrigger className="h-8 w-40 text-xs">
+                                <SelectValue placeholder="Choose School..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {schools.map((s) => (
+                                  <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : effectiveRole === 'Department Admin' ? (
+                            <Select
+                              value={u.role === 'Department Admin' && u.department_id ? String(u.department_id) : ''}
+                              disabled={isSelf || isBusy}
+                              onValueChange={(value) => {
+                                setPendingRole((prev) => { const next = { ...prev }; delete next[u.id]; return next; });
+                                updateUser(u.id, { role: 'Department Admin', department_id: Number(value) });
+                              }}
+                            >
+                              <SelectTrigger className="h-8 w-40 text-xs">
+                                <SelectValue placeholder="Choose Department..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allDepartments.map((d) => (
+                                  <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">&mdash;</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge variant={u.is_active ? 'success' : 'warning'}>

@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { ensureColumn } = require('./universityModel');
 
 const createUsersTable = async (options = {}) => {
   const retries = options.retries ?? 5;
@@ -61,6 +62,51 @@ const createUsersTable = async (options = {}) => {
   }
 };
 
+// PHASE 7 — additive role/scoping migration. Documented here rather than invented silently:
+//   * Extends the existing `role` ENUM with two genuinely new values, 'School Admin' and
+//     'Department Admin' — reusing the existing single `teachers.role` column rather than
+//     creating a second roles table or a parallel representation. No existing value is
+//     renamed/removed, so every current row (Admin/Examination Team/Teacher/Viewer) is
+//     unaffected and keeps working exactly as before.
+//   * Adds nullable `school_id` / `department_id` FKs so a School Admin / Department Admin
+//     can be scoped to the one school/department they administer. NULL for every existing
+//     user (including current Admins) — scope is only meaningful for the two new roles and
+//     is never inferred.
+const addRoleScopingColumns = async () => {
+  await ensureColumn('teachers', 'school_id', 'INT DEFAULT NULL');
+  await ensureColumn('teachers', 'department_id', 'INT DEFAULT NULL');
+
+  const [[roleColumn]] = await pool.query(`
+    SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'teachers' AND COLUMN_NAME = 'role'
+  `);
+  if (roleColumn && !roleColumn.COLUMN_TYPE.includes('School Admin')) {
+    await pool.query(`
+      ALTER TABLE teachers
+      MODIFY COLUMN role ENUM('Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin')
+      NOT NULL DEFAULT 'Viewer'
+    `);
+  }
+
+  // FKs added only once the referenced tables exist (schools/departments are created by
+  // createUniversityTables(), which server.js already runs before this function).
+  const [fkRows] = await pool.query(`
+    SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'teachers' AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+  `);
+  const existingFks = new Set(fkRows.map((r) => r.CONSTRAINT_NAME));
+  if (!existingFks.has('fk_teachers_school')) {
+    try {
+      await pool.query('ALTER TABLE teachers ADD CONSTRAINT fk_teachers_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE SET NULL');
+    } catch { /* schools table not ready yet or FK already effectively present — safe to skip */ }
+  }
+  if (!existingFks.has('fk_teachers_department')) {
+    try {
+      await pool.query('ALTER TABLE teachers ADD CONSTRAINT fk_teachers_department FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL');
+    } catch { /* same as above */ }
+  }
+};
+
 const findUserByEmail = async (email) => {
   const [rows] = await pool.query('SELECT * FROM teachers WHERE email = ?', [email]);
   return rows[0];
@@ -78,7 +124,12 @@ const createUser = async ({ name, email, hashedPassword }) => {
 // Returns safe fields only — no password hash
 const findUserById = async (id) => {
   const [rows] = await pool.query(
-    'SELECT id, name, email, role, is_active, created_at FROM teachers WHERE id = ?',
+    `SELECT t.id, t.name, t.email, t.role, t.is_active, t.created_at, t.school_id, t.department_id,
+            s.name AS school_name, d.name AS department_name
+     FROM teachers t
+     LEFT JOIN schools s ON s.id = t.school_id
+     LEFT JOIN departments d ON d.id = t.department_id
+     WHERE t.id = ?`,
     [id],
   );
   return rows[0];
@@ -87,13 +138,20 @@ const findUserById = async (id) => {
 // Admin: list all users — never expose password
 const getAllUsers = async () => {
   const [rows] = await pool.query(
-    'SELECT id, name, email, role, is_active, created_at FROM teachers ORDER BY created_at DESC',
+    `SELECT t.id, t.name, t.email, t.role, t.is_active, t.created_at, t.school_id, t.department_id,
+            s.name AS school_name, d.name AS department_name
+     FROM teachers t
+     LEFT JOIN schools s ON s.id = t.school_id
+     LEFT JOIN departments d ON d.id = t.department_id
+     ORDER BY t.created_at DESC`,
   );
   return rows;
 };
 
-// Admin: update a user's role and/or active status
-const updateUserRoleAndStatus = async (id, { role, is_active }) => {
+// Admin: update a user's role and/or active status and/or School/Department scope.
+// scope fields are explicitly settable to null (e.g. demoting a School Admin back to
+// Teacher should clear school_id) — undefined means "leave unchanged", null means "clear".
+const updateUserRoleAndStatus = async (id, { role, is_active, school_id, department_id }) => {
   const fields = [];
   const values = [];
 
@@ -104,6 +162,14 @@ const updateUserRoleAndStatus = async (id, { role, is_active }) => {
   if (is_active !== undefined) {
     fields.push('is_active = ?');
     values.push(is_active ? 1 : 0);
+  }
+  if (school_id !== undefined) {
+    fields.push('school_id = ?');
+    values.push(school_id);
+  }
+  if (department_id !== undefined) {
+    fields.push('department_id = ?');
+    values.push(department_id);
   }
 
   if (fields.length === 0) return false;
@@ -118,6 +184,7 @@ const updateUserRoleAndStatus = async (id, { role, is_active }) => {
 
 module.exports = {
   createUsersTable,
+  addRoleScopingColumns,
   findUserByEmail,
   createUser,
   findUserById,

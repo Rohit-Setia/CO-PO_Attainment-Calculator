@@ -64,6 +64,9 @@ const getStudentById = async (id) => {
   return rows[0] || null;
 };
 
+// Section 14/2 — search + server-side filtering/pagination, and read-scoping for
+// School Admin / Department Admin (schoolId/departmentId narrow via the same
+// program -> department -> school join used everywhere else in the hierarchy).
 const listStudents = async (filters = {}) => {
   const conditions = [];
   const params = [];
@@ -73,25 +76,41 @@ const listStudents = async (filters = {}) => {
     params.push(q, q, q, q);
   }
   if (filters.status) { conditions.push('st.status = ?'); params.push(filters.status); }
+  if (filters.programId) { conditions.push('st.academic_program_id = ?'); params.push(filters.programId); }
+  if (filters.sessionId) { conditions.push('st.academic_session_id = ?'); params.push(filters.sessionId); }
+  if (filters.classId) { conditions.push('st.class_id = ?'); params.push(filters.classId); }
+  if (filters.departmentId) { conditions.push('p.department_id = ?'); params.push(filters.departmentId); }
+  if (filters.schoolId) { conditions.push('d.school_id = ?'); params.push(filters.schoolId); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const limitClause = filters.limit ? `LIMIT ${Number(filters.limit)}` : '';
+  const limit = filters.limit ? Number(filters.limit) : 50;
+  const offset = filters.offset ? Number(filters.offset) : 0;
+
+  const [[{ total }]] = await pool.query(
+    `SELECT COUNT(*) AS total FROM students st
+     LEFT JOIN programs p ON p.id = st.academic_program_id
+     LEFT JOIN departments d ON d.id = p.department_id
+     ${where}`,
+    params,
+  );
 
   const [rows] = await pool.query(
     `SELECT st.*,
             p.name AS program_name, p.id AS academic_program_id_fk,
+            d.name AS department_name, d.school_id,
             sess.name AS session_name,
             (SELECT GROUP_CONCAT(DISTINCT ce.course_id) FROM course_enrollments ce WHERE ce.student_id = st.id) AS enrolled_course_ids,
             (SELECT GROUP_CONCAT(DISTINCT cs.class_id) FROM class_students cs WHERE cs.student_id = st.id) AS class_ids
      FROM students st
      LEFT JOIN programs p ON p.id = st.academic_program_id
+     LEFT JOIN departments d ON d.id = p.department_id
      LEFT JOIN academic_sessions sess ON sess.id = st.academic_session_id
      ${where}
      ORDER BY st.registration_number ASC
-     ${limitClause}`,
-    params,
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
   );
-  return rows;
+  return { rows, total, limit, offset };
 };
 
 // Mark a student as mapped to a class (writes student snapshot fields + class_students).
