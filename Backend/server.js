@@ -11,6 +11,7 @@ const studentRouter = require('./routes/studentRoutes');
 const errorHandler = require('./middlewares/errorMiddleware');
 
 const { createUsersTable, addRoleScopingColumns } = require('./models/userModel');
+const pool = require('./config/db');
 const { createCoursesTable, createUserCourseAssignmentsTable, addCourseStatusColumn } = require('./models/courseModel');
 const { createMappingTables, createCoPoValueTable, migrateLegacyMappingToCoPoValues } = require('./models/mappingModel');
 const {
@@ -38,6 +39,9 @@ app.use(
 
 // Support one or more comma-separated origins via CLIENT_URL (e.g. for staging + prod).
 // Unlike a bare `origin: true`/wildcard, unlisted origins are rejected outright.
+// The localhost/127.0.0.1 bypass exists for local development only — in production
+// (NODE_ENV=production) ONLY the explicit CLIENT_URL allowlist is accepted.
+const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
   .split(',')
   .map((o) => o.trim())
@@ -46,20 +50,38 @@ const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
 app.use(
   cors({
     origin(origin, callback) {
-      // Allow non-browser tools (curl/Postman send no Origin header) and any listed origin.
       if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      if (!isProduction && (/^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin))) {
         return callback(null, true);
       }
       return callback(Object.assign(new Error('Not allowed by CORS'), { status: 403 }));
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    credentials: true,
+    optionsSuccessStatus: 200,
   }),
 );
-app.use(express.json());
+// 5mb JSON limit — the Excel import flow posts client-parsed mark grids as JSON, and a large
+// workbook (e.g. 2000+ students × 30 CO columns) comfortably exceeds Express's 100kb default.
+app.use(express.json({ limit: '5mb' }));
 
 app.get('/', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// Phase 8 — health check: reports service health WITHOUT exposing database credentials,
+// schema details, or any internal configuration. A DB failure surfaces as status "degraded".
+app.get('/health', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT 1 AS ok');
+    if (!rows || rows[0].ok !== 1) throw new Error('db check failed');
+    res.json({ status: 'ok' });
+  } catch (err) {
+    res.status(503).json({ status: 'degraded', detail: 'database unavailable' });
+  }
 });
 
 app.use('/api', excelRouter);
@@ -72,6 +94,16 @@ app.use('/api', studentRouter);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
+
+// Phase 8 — production guards. Never log the actual secret value, only its presence/length.
+if (isProduction) {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    console.warn('[SECURITY] JWT_SECRET is missing or shorter than 32 characters. Set a strong, random secret in production.');
+  }
+  if (!process.env.CLIENT_URL) {
+    console.warn('[SECURITY] CLIENT_URL is not set in production. Only same-origin requests will be accepted.');
+  }
+}
 
 // Sequential initialization of tables, then a one-time additive migration into the normalized
 // dynamic-CO schema (course_outcomes, co_po_values, question_configs, student_co_marks,

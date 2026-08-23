@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const pool = require('../config/db');
 const protect = require('../middlewares/authMiddleware');
 const { authorizeRoles } = require('../middlewares/roleMiddleware');
 const { applyReadScope } = require('../middlewares/scopeMiddleware');
@@ -10,6 +11,66 @@ const {
 const {
   createStudent, updateStudent, getStudentById, listStudents, mapStudentToClass, findStudentByAnyIdentifier,
 } = require('../models/studentMasterModel');
+
+// Phase 8 — server-side student read scoping (IDOR hardening). A caller must not gain access
+// to a student merely by changing an id in the URL:
+//   Admin / Examination Team  — any student.
+//   School Admin              — students whose academic Program belongs to their School.
+//   Department Admin          — students whose academic Program belongs to their Department.
+//   Teacher / Viewer          — students enrolled in a course they own or are assigned to.
+const canReadStudent = async (user, studentId) => {
+  const { role } = user;
+  if (role === 'Admin' || role === 'Examination Team') return true;
+
+  if (role === 'School Admin') {
+    if (!user.school_id) return false;
+    const [[row]] = await pool.query(
+      `SELECT 1 FROM students st
+       LEFT JOIN programs p ON p.id = st.academic_program_id
+       LEFT JOIN departments d ON d.id = p.department_id
+       WHERE st.id = ? AND d.school_id = ? LIMIT 1`,
+      [studentId, user.school_id],
+    );
+    return !!row;
+  }
+
+  if (role === 'Department Admin') {
+    if (!user.department_id) return false;
+    const [[row]] = await pool.query(
+      `SELECT 1 FROM students st
+       LEFT JOIN programs p ON p.id = st.academic_program_id
+       WHERE st.id = ? AND p.department_id = ? LIMIT 1`,
+      [studentId, user.department_id],
+    );
+    return !!row;
+  }
+
+  const [[row]] = await pool.query(
+    `SELECT 1 FROM course_enrollments ce
+     JOIN courses c ON c.id = ce.course_id
+     LEFT JOIN user_course_assignments uca ON uca.course_id = c.id AND uca.user_id = ?
+     WHERE ce.student_id = ? AND (c.teacher_id = ? OR uca.id IS NOT NULL) LIMIT 1`,
+    [user.id, studentId, user.id],
+  );
+  return !!row;
+};
+
+// Phase 8 — read scoping for class-membership access (School/Department Admin only; other
+// roles keep the existing open read because the course-enrollment workflow depends on it).
+const isClassInScope = async (user, classId) => {
+  const { role } = user;
+  if (role !== 'School Admin' && role !== 'Department Admin') return true;
+  const [[row]] = await pool.query(
+    `SELECT d.school_id, p.department_id FROM academic_classes ac
+     LEFT JOIN programs p ON p.id = ac.program_id
+     LEFT JOIN departments d ON d.id = p.department_id
+     WHERE ac.id = ?`,
+    [classId],
+  );
+  if (!row) return null;
+  if (role === 'School Admin') return Boolean(user.school_id && String(row.school_id) === String(user.school_id));
+  return String(row.department_id) === String(user.department_id);
+};
 
 // A registration number/name that looks nothing like the real patterns in this system (short,
 // all-letters, no digits) is flagged for an administrator's attention — never auto-corrected
@@ -83,6 +144,8 @@ router.get('/students/:id', protect, async (req, res, next) => {
   try {
     const student = await getStudentById(req.params.id);
     if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
+    const allowed = await canReadStudent(req.user, req.params.id);
+    if (!allowed) return res.status(403).json({ success: false, message: 'Forbidden: you cannot access this student.' });
     res.json({ success: true, data: student });
   } catch (err) { next(err); }
 });
@@ -102,6 +165,9 @@ router.post('/students/:id/map', protect, authorizeRoles('Admin', 'Examination T
 // ---------- Class Membership ----------
 router.get('/classes/:id/students', protect, async (req, res, next) => {
   try {
+    const inScope = await isClassInScope(req.user, req.params.id);
+    if (inScope === null) return res.status(404).json({ success: false, message: 'Class not found.' });
+    if (!inScope) return res.status(403).json({ success: false, message: 'Forbidden: outside your School/Department.' });
     const rows = await getStudentsForClass(req.params.id);
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }

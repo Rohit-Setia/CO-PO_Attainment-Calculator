@@ -140,6 +140,15 @@ router.get('/courses', protect, async (req, res, next) => {
 router.post('/courses', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { school, department, subjectName, courseCode, semester, academicYear, numCos } = req.body;
+    if (!school || !department || !subjectName || !courseCode || !semester || !academicYear) {
+      return res.status(400).json({
+        success: false,
+        message: 'school, department, subjectName, courseCode, semester and academicYear are required.',
+      });
+    }
+    if (!Number.isFinite(Number(semester)) || Number(semester) < 1) {
+      return res.status(400).json({ success: false, message: 'semester must be a positive number.' });
+    }
     const courseId = await createCourse({
       teacherId: req.user.id,
       school,
@@ -260,6 +269,9 @@ router.post('/courses/:id/outcomes', protect, checkCoursePermission(['Teacher'])
     const course = await loadCourseOr404(req, res);
     if (!course) return;
     const { description, max_internal, max_external } = req.body;
+    if (!description || !String(description).trim()) {
+      return res.status(400).json({ success: false, message: 'CO description is required.' });
+    }
     const outcome = await addCourseOutcome(course.id, { description, max_internal, max_external });
     res.status(201).json({ success: true, message: `CO${outcome.co_number} added.`, data: outcome });
   } catch (err) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Building2, Landmark, GitBranch, GraduationCap, CalendarRange, Users2, Plus, Pencil, Power } from 'lucide-react';
 import {
@@ -183,17 +183,37 @@ export default function AcademicAdministrationPage() {
 
   usePageHeader({ title: 'Academic Structure', subtitle: 'Schools, Departments, Programs, Sessions & Classes' });
 
+  const [activeTab, setActiveTab] = useState('schools');
+  const loadedRef = useRef({ schools: false, departments: false, programs: false, sessions: false });
   const [schools, setSchools] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [programs, setPrograms] = useState([]);
   const [sessions, setSessions] = useState([]);
 
-  useEffect(() => {
-    fetchSchools().then((r) => setSchools(r.data.data || [])).catch(() => {});
-    fetchDepartments().then((r) => setDepartments(r.data.data || [])).catch(() => {});
-    fetchPrograms().then((r) => setPrograms(r.data.data || [])).catch(() => {});
-    fetchSessions().then((r) => setSessions(r.data.data || [])).catch(() => {});
-  }, []);
+  // Phase 8 — lazy loading: only the visible tab's data is fetched on mount (Schools).
+  // Departments/Programs/Sessions lists are fetched on first selection of a tab that needs
+  // them (for dropdown options), never all at once. Each tab's own list is still loaded by
+  // its EntityPanel when that tab is first opened. A ref guards against double-fetch on
+  // rapid tab switching.
+  const ensureLoaded = (name) => {
+    if (loadedRef.current[name]) return;
+    loadedRef.current[name] = true;
+    if (name === 'schools') fetchSchools().then((r) => setSchools(r.data.data || [])).catch(() => {});
+    if (name === 'departments') fetchDepartments().then((r) => setDepartments(r.data.data || [])).catch(() => {});
+    if (name === 'programs') fetchPrograms().then((r) => setPrograms(r.data.data || [])).catch(() => {});
+    if (name === 'sessions') fetchSessions().then((r) => setSessions(r.data.data || [])).catch(() => {});
+  };
+
+  const handleTabChange = (value) => {
+    setActiveTab(value);
+    if (value === 'schools') ensureLoaded('schools');
+    if (value === 'departments' || value === 'branches') ensureLoaded('departments');
+    if (value === 'programs') { ensureLoaded('departments'); ensureLoaded('programs'); }
+    if (value === 'sessions') ensureLoaded('sessions');
+    if (value === 'classes') { ensureLoaded('programs'); ensureLoaded('sessions'); }
+  };
+
+  useEffect(() => { ensureLoaded('schools'); }, []);
 
   const schoolOptions = useMemo(() => schools.map((s) => ({ value: String(s.id), label: s.name })), [schools]);
   const departmentOptions = useMemo(() => departments.map((d) => ({ value: String(d.id), label: d.name })), [departments]);
@@ -205,7 +225,7 @@ export default function AcademicAdministrationPage() {
 
   return (
     <PageTransition>
-      <Tabs defaultValue="schools">
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="mb-8 flex-wrap">
           <TabsTrigger value="schools"><Building2 className="h-4 w-4" /> Schools</TabsTrigger>
           <TabsTrigger value="departments"><Landmark className="h-4 w-4" /> Departments</TabsTrigger>

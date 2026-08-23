@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { ClipboardList, Grid3x3, Target, Calculator, Upload, FileBarChart } from 'lucide-react';
@@ -6,34 +7,43 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 import AppShell from './components/layout/AppShell';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
-import Dashboard from './Pages/Dashboard';
-import CoursesPage from './Pages/CoursesPage';
-import StudentsPage from './Pages/StudentsPage';
-import CoursePickerPage from './Pages/CoursePickerPage';
-import InternalMarksPage from './Pages/InternalMarksPage';
-import SettingsPage from './Pages/SettingsPage';
-import NotificationsPage from './Pages/NotificationsPage';
+import { Skeleton } from './components/ui/skeleton';
 import LoginPage from './Pages/LoginPage';
 import SignupPage from './Pages/SignupPage';
-import CourseWorkspace from './Pages/CourseWorkspace';
-import AdminPanel from './Pages/AdminPanel';
-import StudentMappingPage from './Pages/StudentMappingPage';
-import CourseEnrollmentPage from './Pages/CourseEnrollmentPage';
-import AcademicAdministrationPage from './Pages/AcademicAdministrationPage';
-import StudentMasterPage from './Pages/StudentMasterPage';
 
-// Phase 7 — Schools/Departments/Programs/Sessions/Classes and the Student Master are managed
-// by University Admin, School Admin, or Department Admin (each additionally scoped server-side
-// to their own School/Department — the route guard here is coarse, the backend is authoritative).
+// Phase 8 — route-level lazy loading via React.lazy() for every page except Login/Signup
+// (which are the first page most users see and are small enough to keep as eager imports).
+const Dashboard = lazy(() => import('./Pages/Dashboard'));
+const CoursesPage = lazy(() => import('./Pages/CoursesPage'));
+const StudentsPage = lazy(() => import('./Pages/StudentsPage'));
+const CoursePickerPage = lazy(() => import('./Pages/CoursePickerPage'));
+const InternalMarksPage = lazy(() => import('./Pages/InternalMarksPage'));
+const SettingsPage = lazy(() => import('./Pages/SettingsPage'));
+const NotificationsPage = lazy(() => import('./Pages/NotificationsPage'));
+const CourseWorkspace = lazy(() => import('./Pages/CourseWorkspace'));
+const AdminPanel = lazy(() => import('./Pages/AdminPanel'));
+const StudentMappingPage = lazy(() => import('./Pages/StudentMappingPage'));
+const CourseEnrollmentPage = lazy(() => import('./Pages/CourseEnrollmentPage'));
+const AcademicAdministrationPage = lazy(() => import('./Pages/AcademicAdministrationPage'));
+const StudentMasterPage = lazy(() => import('./Pages/StudentMasterPage'));
+
 const ADMIN_ROLES = ['Admin', 'School Admin', 'Department Admin'];
+
+const PageFallback = () => (
+  <div className="space-y-3">
+    <Skeleton className="h-10 w-72" />
+    <Skeleton className="h-96 rounded-2xl" />
+  </div>
+);
 
 const AppRoutes = () => {
   const { isAuthenticated } = useAuth();
 
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
 
       <Route
         element={
@@ -116,7 +126,8 @@ const AppRoutes = () => {
 
       <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 };
 
