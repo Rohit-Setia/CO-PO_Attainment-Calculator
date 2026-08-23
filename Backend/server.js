@@ -5,6 +5,9 @@ const helmet = require('helmet');
 const excelRouter = require('./routes/excelExport');
 const authRouter = require('./routes/authRoutes');
 const courseRouter = require('./routes/courseRoutes');
+const dashboardRouter = require('./routes/dashboardRoutes');
+const academicRouter = require('./routes/academicRoutes');
+const studentRouter = require('./routes/studentRoutes');
 const errorHandler = require('./middlewares/errorMiddleware');
 
 const { createUsersTable } = require('./models/userModel');
@@ -15,6 +18,8 @@ const {
 } = require('./models/marksModel');
 const { createCourseOutcomeTables, migrateLegacyCoursesToOutcomes } = require('./models/courseOutcomeModel');
 const { createQuestionConfigTable, migrateLegacyQuestionConfigs } = require('./models/questionConfigModel');
+const { createUniversityTables, migrateLegacyUniversityData, normalizeLegacyStudentsTable, normalizeProgramsTable, normalizeLegacyStudentSchemaForMaster } = require('./models/universityModel');
+const { createStudentTables, migrateLegacyStudentData } = require('./models/studentModel');
 
 const app = express();
 
@@ -56,6 +61,9 @@ app.get('/', (req, res) => {
 app.use('/api', excelRouter);
 app.use('/api', authRouter);
 app.use('/api', courseRouter);
+app.use('/api', dashboardRouter);
+app.use('/api', academicRouter);
+app.use('/api', studentRouter);
 
 app.use(errorHandler);
 
@@ -66,10 +74,17 @@ const PORT = process.env.PORT || 5000;
 // student_question_marks). Every migration step is idempotent (skips courses/rows already
 // migrated) and never modifies or drops the legacy tables/columns it reads from.
 createUsersTable()
+  .then(() => createUniversityTables())
+  .then(() => createStudentTables())
   .then(() => createCoursesTable())
+  .then(() => migrateLegacyUniversityData())
+  .then(() => normalizeLegacyStudentsTable())
+  .then(() => normalizeProgramsTable())
+  .then(() => normalizeLegacyStudentSchemaForMaster())
   .then(() => createUserCourseAssignmentsTable())
   .then(() => createMappingTables())
   .then(() => createMarksTable())
+  .then(() => migrateLegacyStudentData())
   .then(() => createCourseOutcomeTables())
   .then(() => migrateLegacyCoursesToOutcomes())
   .then(() => createCoPoValueTable())

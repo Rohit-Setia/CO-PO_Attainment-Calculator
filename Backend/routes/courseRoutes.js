@@ -317,9 +317,22 @@ router.get('/courses/:id/config', protect, checkCoursePermission(['Teacher', 'Vi
       return getActiveOutcomes(course.id);
     })();
 
+    // Academic-context breadcrumb (School / Department / Program / Session), resolved via the
+    // same hierarchy join the dashboard uses. Null when the course predates the Phase 2
+    // hierarchy migration or was never linked — surfaced honestly, not guessed.
+    const hierarchyMap = await getCourseHierarchyContext([course.id]);
+    const hctx = hierarchyMap.get(course.id) || {};
+    const hierarchy = {
+      schoolName: hctx.school_name || null,
+      departmentName: hctx.department_name || null,
+      programName: hctx.program_name || null,
+      sessionName: hctx.session_name || null,
+      linked: Boolean(course.program_id),
+    };
+
     res.json({
       success: true,
-      data: { course, config, outcomes: finalOutcomes },
+      data: { course, config, outcomes: finalOutcomes, hierarchy },
     });
   } catch (err) {
     next(err);
@@ -567,6 +580,7 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
 
       if (entryMode === 'question') {
         const perCoTotals = new Map();
+        outcomes.forEach((o) => perCoTotals.set(o.id, 0));
         questionMarksToSave = Object.entries(student.questionMarks || {})
           .map(([qcIdStr, mark]) => {
             const qc = questionConfigById.get(parseInt(qcIdStr, 10));
@@ -578,9 +592,10 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
           .filter(Boolean);
         coMarksToSave = Array.from(perCoTotals.entries()).map(([co_id, marks]) => ({ co_id, marks }));
       } else {
-        coMarksToSave = Object.entries(student.coMarks || {})
-          .filter(([coIdStr]) => outcomeById.has(parseInt(coIdStr, 10)))
-          .map(([coIdStr, marks]) => ({ co_id: parseInt(coIdStr, 10), marks: parseFloat(marks) || 0 }));
+        coMarksToSave = outcomes.map((co) => ({
+          co_id: co.id,
+          marks: parseFloat(student.coMarks?.[co.id]) || 0,
+        }));
       }
 
       const totalMarks = coMarksToSave.reduce((sum, c) => sum + c.marks, 0);
@@ -863,6 +878,337 @@ router.post('/courses/import-json', protect, authorizeRoles('Admin', 'Examinatio
   } catch (err) {
     next(err);
   }
+});
+
+// ── Course Academic Mapping (Phase 3K) ─────────────────────────────────────
+// Links an existing course into the university hierarchy WITHOUT touching its
+// free-text fields (school/department/semester/academic_year stay intact unless
+// the caller explicitly sends overwriteFreeText fields). Additive + reversible.
+// config/db exports the promise pool directly (module.exports = pool)
+const academicPool = require('../config/db');
+
+router.put('/courses/:id/academic-map', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+
+    const { programId, sessionId, semester } = req.body;
+    const sets = [];
+    const values = [];
+    // Only write FKs that were explicitly provided; sending null un-maps deliberately.
+    if (programId !== undefined) { sets.push('program_id = ?'); values.push(programId); }
+    if (sessionId !== undefined) { sets.push('academic_session_id = ?'); values.push(sessionId); }
+    if (semester !== undefined) { sets.push('semester = ?'); values.push(semester); }
+    if (sets.length === 0) {
+      return res.status(400).json({ success: false, message: 'Provide at least one of programId, sessionId, semester.' });
+    }
+    values.push(course.id);
+    await academicPool.query(`UPDATE courses SET ${sets.join(', ')} WHERE id = ?`, values);
+
+    const [updated] = await academicPool.query(
+      'SELECT id, course_code, subject_name, program_id, academic_session_id, semester FROM courses WHERE id = ?',
+      [course.id],
+    );
+    res.json({ success: true, message: 'Course academic context updated.', data: updated[0] });
+  } catch (err) { next(err); }
+});
+
+// ── Phase 5: Marks Excel Template ──────────────────────────────────────────
+// GET /api/courses/:id/marks-template?examType=MTT&classId=1
+// Generates a pre-filled workbook from Course Enrollment + Student Master.
+const { buildMarksEntryWorkbook, buildMarksFileName } = require('../utils/marksTemplate');
+
+router.get('/courses/:id/marks-template', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+
+    const examType = req.query.examType === 'ETT' ? 'ETT' : 'MTT';
+    const [ctxRows] = await academicPool.query(
+      `SELECT c.id, c.course_code, c.subject_name, c.semester,
+              p.id AS program_id, p.name AS program_name, p.code AS program_code,
+              d.id AS department_id, d.name AS department_name,
+              s.id AS school_id, s.name AS school_name,
+              sess.id AS session_id, sess.name AS session_name
+       FROM courses c
+       LEFT JOIN programs p ON p.id = c.program_id
+       LEFT JOIN departments d ON d.id = p.department_id
+       LEFT JOIN schools s ON s.id = d.school_id
+       LEFT JOIN academic_sessions sess ON sess.id = c.academic_session_id
+       WHERE c.id = ?`,
+      [course.id],
+    );
+    const ctxCourse = ctxRows[0] || {};
+
+    // Optional section label from an explicit class selection
+    let section = null;
+    if (req.query.classId) {
+      const [cls] = await academicPool.query('SELECT section FROM academic_classes WHERE id = ?', [req.query.classId]);
+      section = cls[0]?.section || null;
+    }
+
+    const outcomes = await getActiveOutcomes(course.id);
+    const enrolled = await getEnrolledStudentsForCourse(course.id);
+
+    // Pre-fill already-saved marks for this exam type (matched by reg_no)
+    const [markRows] = await academicPool.query(
+      'SELECT id, reg_no FROM student_marks WHERE course_id = ? AND exam_type = ?',
+      [course.id, examType],
+    );
+    const coMarksByMarkId = await getCoMarksForCourse(course.id, examType);
+    const marksByReg = new Map(markRows.map((m) => [String(m.reg_no), coMarksByMarkId.get(m.id) || {}]));
+
+    const ctx = {
+      course: ctxCourse,
+      program: { id: ctxCourse.program_id, name: ctxCourse.program_name, code: ctxCourse.program_code },
+      department: { id: ctxCourse.department_id, name: ctxCourse.department_name },
+      school: { id: ctxCourse.school_id, name: ctxCourse.school_name },
+      session: { id: ctxCourse.session_id, name: ctxCourse.session_name },
+      semester: ctxCourse.semester,
+      section,
+      outcomes,
+      students: enrolled.map((st) => ({
+        registration_number: st.registration_number,
+        roll_number: st.roll_number,
+        roll_no: st.roll_no,
+        name: st.name,
+        coMarks: marksByReg.get(String(st.registration_number)) || {},
+      })),
+      examType,
+    };
+
+    const { workbook } = await buildMarksEntryWorkbook(ctx);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${buildMarksFileName({ session: ctx.session, program: ctx.program, semester: ctx.semester, section, course })}"`,
+    );
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) { next(err); }
+});
+
+// ── Phase 5: Marks Excel Import (validate + preview + confirm) ─────────────
+// The frontend parses the .xlsx client-side (existing SheetJS architecture — no multer on this
+// backend) and posts the extracted grid. The BACKEND is authoritative: it re-validates every
+// mark against the persisted CO configuration and matches students against Course Enrollment
+// in the DB. Nothing is ever saved on preview.
+const validateImportPayload = async (course, examType, rows) => {
+  const errors = [];
+  if (!['MTT', 'ETT'].includes(examType)) return { error: 'Invalid assessment type.' };
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { error: 'No student rows found in the uploaded file.' };
+  }
+
+  const outcomes = await getActiveOutcomes(course.id);
+  const outcomeById = new Map(outcomes.map((o) => [String(o.id), o]));
+  const isInternal = examType === 'MTT';
+  const enrolled = await getEnrolledStudentsForCourse(course.id);
+  const enrolledByReg = new Map(enrolled.map((s) => [String(s.registration_number).toLowerCase(), s]));
+
+  // Existing saved marks — needed to classify updated vs unchanged
+  const [markRows] = await academicPool.query(
+    'SELECT id, reg_no FROM student_marks WHERE course_id = ? AND exam_type = ?',
+    [course.id, examType],
+  );
+  const existingCoMarks = await getCoMarksForCourse(course.id, examType);
+  const existingByReg = new Map(markRows.map((m) => [String(m.reg_no), existingCoMarks.get(m.id) || {}]));
+
+  const seenRegs = new Set();
+  const valid = [];
+  let duplicateCount = 0;
+  let unknownCount = 0;
+
+  rows.forEach((row, idx) => {
+    const rowNo = row.rowNumber || idx + 1;
+    const regKey = String(row.regNo || '').trim().toLowerCase();
+    if (!regKey) {
+      errors.push({ row: rowNo, regNo: '', name: row.name || '', column: 'Registration No', problem: 'Missing registration number.' });
+      return;
+    }
+    if (seenRegs.has(regKey)) {
+      duplicateCount += 1;
+      errors.push({ row: rowNo, regNo: row.regNo, name: row.name || '', column: 'Registration No', problem: `Duplicate student registration number: ${row.regNo}` });
+      return;
+    }
+    seenRegs.add(regKey);
+
+    const student = enrolledByReg.get(regKey);
+    if (!student) {
+      unknownCount += 1;
+      errors.push({ row: rowNo, regNo: row.regNo, name: row.name || '', column: 'Registration No', problem: `Student ${row.regNo} is not enrolled in this course.` });
+      return;
+    }
+
+    // Validate every provided CO mark against the persisted maximum; blank stays missing (NOT zero)
+    const cleanedCoMarks = {};
+    let rowHasError = false;
+    for (const [coId, raw] of Object.entries(row.coMarks || {})) {
+      const co = outcomeById.get(String(coId));
+      if (!co) continue; // stale/unknown CO column — ignore
+      if (raw === '' || raw === null || raw === undefined) continue;
+      const val = Number(raw);
+      const max = parseFloat(isInternal ? co.max_internal : co.max_external);
+      if (Number.isNaN(val)) {
+        rowHasError = true;
+        errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: `CO${co.co_number}`, problem: `Value "${raw}" is not a number.` });
+      } else if (val < 0) {
+        rowHasError = true;
+        errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: `CO${co.co_number}`, problem: 'Marks cannot be negative.' });
+      } else if (max > 0 && val > max) {
+        rowHasError = true;
+        errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: `CO${co.co_number}`, problem: `Maximum ${examType} mark for CO${co.co_number} is ${max}.` });
+      } else {
+        cleanedCoMarks[co.id] = val;
+      }
+    }
+    if (rowHasError) return;
+
+    // Updated vs unchanged, compared against currently stored values
+    const prev = existingByReg.get(String(student.registration_number)) || {};
+    const changed = Object.keys(cleanedCoMarks).length > 0
+      ? Object.keys(cleanedCoMarks).some((coId) => Math.abs((parseFloat(prev[coId]) || 0) - (cleanedCoMarks[coId] || 0)) > 1e-9)
+      : Object.keys(prev).length > 0;
+
+    valid.push({
+      studentId: student.id,
+      regNo: student.registration_number,
+      name: student.name,
+      rollNo: student.roll_number || student.roll_no || '',
+      coMarks: cleanedCoMarks,
+      changed,
+    });
+  });
+
+  const missing = enrolled.filter((s) => !seenRegs.has(String(s.registration_number).toLowerCase()));
+
+  return {
+    error: null,
+    result: {
+      enrolledCount: enrolled.length,
+      matchedCount: valid.length,
+      validCount: valid.length,
+      errorCount: errors.length,
+      duplicateCount,
+      unknownCount,
+      changedCount: valid.filter((v) => v.changed).length,
+      unchangedCount: valid.filter((v) => !v.changed).length,
+      validRecords: valid.map((v) => ({ regNo: v.regNo, name: v.name, rollNo: v.rollNo, status: v.changed ? 'Update' : 'Unchanged' })),
+      errors,
+      missingStudents: missing.map((m) => ({ regNo: m.registration_number, name: m.name })),
+    },
+    validRows: valid,
+    outcomes,
+  };
+};
+// Step 2/3 — validate and return the preview. Nothing is written.
+router.post('/courses/:id/marks/import-preview', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+    const { examType, rows } = req.body;
+    const { error, result } = await validateImportPayload(course, examType, rows);
+    if (error) return res.status(400).json({ success: false, message: error });
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// Step 4 — teacher confirmed. Saves ONLY validated rows through the EXISTING marks pipeline
+// (saveStudentMark upserts on course+reg+exam → no duplicate marks; CO totals into
+// student_co_marks), so online entry, Excel entry, attainment, and exports share one dataset.
+router.post('/courses/:id/marks/import', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const course = await loadCourseOr404(req, res);
+    if (!course) return;
+    const { examType, rows, acknowledgeMissing } = req.body;
+    const { error, result, validRows, outcomes } = await validateImportPayload(course, examType, rows);
+    if (error) return res.status(400).json({ success: false, message: error });
+    if (result.errorCount > 0) {
+      return res.status(400).json({ success: false, message: `${result.errorCount} validation error(s) must be resolved before saving.` });
+    }
+    if (result.missingStudents.length > 0 && !acknowledgeMissing) {
+      return res.status(400).json({
+        success: false,
+        message: `${result.missingStudents.length} enrolled student(s) are missing from the file. Acknowledge to continue.`,
+        data: { missingStudents: result.missingStudents },
+      });
+    }
+    if (validRows.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid marks to save.' });
+    }
+
+    let updated = 0;
+    let unchanged = 0;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const row of validRows) {
+      const totalMarks = Object.values(row.coMarks).reduce((sum, v) => sum + v, 0);
+      // eslint-disable-next-line no-await-in-loop
+      const studentMarkId = await saveStudentMark({
+        courseId: course.id,
+        name: row.name,
+        regNo: row.regNo,
+        examType,
+        totalMarks,
+        questionMarks: null,
+      });
+      // eslint-disable-next-line no-await-in-loop
+      await saveStudentCoMarks(studentMarkId, outcomes
+        .filter((o) => row.coMarks[o.id] !== undefined)
+        .map((o) => ({ co_id: o.id, marks: row.coMarks[o.id] })));
+      if (row.changed) updated += 1; else unchanged += 1;
+    }
+
+    res.json({
+      success: true,
+      message: `Marks imported successfully — ${validRows.length} processed, ${updated} updated, ${unchanged} unchanged, 0 errors.`,
+      data: { processed: validRows.length, updated, unchanged, errors: 0 },
+    });
+  } catch (err) { next(err); }
+});
+
+
+const {
+  getEnrolledStudentsForCourse,
+  enrollStudentInCourse,
+  unenrollStudentFromCourse,
+  enrollManyStudentsInCourse,
+  enrollEntireClassInCourse,
+  getCourseHierarchyContext,
+} = require('../models/academicModel');
+
+// GET /api/courses/:id/enrollment — list enrolled students
+router.get('/courses/:id/enrollment', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
+  try {
+    const students = await getEnrolledStudentsForCourse(req.params.id);
+    res.json({ success: true, data: { courseId: req.params.id, students } });
+  } catch (err) { next(err); }
+});
+
+// POST /api/courses/:id/enrollment — bulk enroll (array of student_id) OR entire class
+// Body: { studentIds?: number[], classId?: number }
+router.post('/courses/:id/enrollment', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const { studentIds, classId } = req.body;
+    let count = 0;
+    if (classId) {
+      count = await enrollEntireClassInCourse(classId, req.params.id);
+    } else if (Array.isArray(studentIds) && studentIds.length > 0) {
+      await enrollManyStudentsInCourse(req.params.id, studentIds);
+      count = studentIds.length;
+    } else {
+      return res.status(400).json({ success: false, message: 'Provide studentIds[] or classId.' });
+    }
+    res.json({ success: true, message: `${count} student(s) enrolled in course.`, data: { enrolled: count } });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/courses/:id/enrollment/:studentId — remove a single student
+router.delete('/courses/:id/enrollment/:studentId', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  try {
+    const removed = await unenrollStudentFromCourse(req.params.id, req.params.studentId);
+    if (!removed) return res.status(404).json({ success: false, message: 'Student not enrolled in this course.' });
+    res.json({ success: true, message: 'Student removed from course.' });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;
