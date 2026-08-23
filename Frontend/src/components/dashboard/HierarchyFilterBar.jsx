@@ -1,7 +1,7 @@
 import { ChevronDown, RotateCcw, Building2 } from 'lucide-react';
 import { useAcademicFilter } from '../../context/AcademicFilterContext';
 
-function FilterSelect({ label, value, onChange, disabled, placeholder, options, getKey, getValue, getLabel }) {
+function FilterSelect({ label, value, onChange, disabled, placeholder, options, getKey, getLabel }) {
   return (
     <div className="relative flex min-w-[9rem] flex-1 flex-col">
       <span className="mb-0.5 px-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
@@ -67,7 +67,6 @@ export default function HierarchyFilterBar({ semesterOptions = [] }) {
           placeholder="All Schools"
           options={schools}
           getKey={(s) => s.id}
-          getValue={(s) => s.id}
           getLabel={(s) => s.name}
         />
         <FilterSelect
@@ -78,7 +77,6 @@ export default function HierarchyFilterBar({ semesterOptions = [] }) {
           placeholder={schoolId === 'all' ? 'Select School first' : 'All Departments'}
           options={departments}
           getKey={(d) => d.id}
-          getValue={(d) => d.id}
           getLabel={(d) => d.name}
         />
         <FilterSelect
@@ -89,7 +87,6 @@ export default function HierarchyFilterBar({ semesterOptions = [] }) {
           placeholder={departmentId === 'all' ? 'Select Department first' : 'All Programs'}
           options={programs}
           getKey={(p) => p.id}
-          getValue={(p) => p.id}
           getLabel={(p) => p.name}
         />
         <FilterSelect
@@ -99,7 +96,6 @@ export default function HierarchyFilterBar({ semesterOptions = [] }) {
           placeholder="All Sessions"
           options={academicSessions}
           getKey={(s) => s.id}
-          getValue={(s) => s.id}
           getLabel={(s) => s.name}
         />
         <FilterSelect
@@ -109,7 +105,6 @@ export default function HierarchyFilterBar({ semesterOptions = [] }) {
           placeholder="All Semesters"
           options={semesterOptions.map((s) => ({ id: s }))}
           getKey={(s) => s.id}
-          getValue={(s) => s.id}
           getLabel={(s) => `Semester ${s.id}`}
         />
         <FilterSelect
@@ -120,7 +115,6 @@ export default function HierarchyFilterBar({ semesterOptions = [] }) {
           placeholder={programId === 'all' ? 'Select Program first' : 'All Sections'}
           options={classes}
           getKey={(c) => c.id}
-          getValue={(c) => c.id}
           getLabel={(c) => `Sem ${c.semester}${c.section ? ` • ${c.section}` : ''}`}
         />
       </div>

@@ -66,7 +66,7 @@ export default function InternalMarksPage() {
   const [section, setSection] = useState(null);
   const [courseId, setCourseId] = useState(null);
 
-  const [loading, setLoading] = useState({ schools: false, departments: false, programs: false, sessions: false, classes: false });
+  const [_loading, setLoading] = useState({ schools: false, departments: false, programs: false, sessions: false, classes: false });
   const [loadingCourses, setLoadingCourses] = useState(false);
 
   // ── Marks workspace ──
@@ -74,7 +74,7 @@ export default function InternalMarksPage() {
   const [outcomes, setOutcomes] = useState([]);
   const [students, setStudents] = useState([]); // [{studentId, regNo, name, rollNo, coMarks:{}, dirty}]
   const [enrolledIds, setEnrolledIds] = useState([]);
-  const [loadedCourse, setLoadedCourse] = useState(null);
+  const [_loadedCourse, setLoadedCourse] = useState(null);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
@@ -153,12 +153,6 @@ export default function InternalMarksPage() {
     if (sessionId && c.academic_session_id && String(c.academic_session_id) !== String(sessionId)) return false;
     return true;
   }), [courses, programId, sessionId]);
-
-  // ── Cascade resets ──
-  const resetBelow = () => {
-    setCourseId(null); setLoadedCourse(null); setStudents([]); setOutcomes([]);
-    setSemester(null); setSection(null);
-  };
 
   // ── Load students + marks for the selected course ──
   const loadCourseWorkspace = useCallback(async (cid, examType) => {
@@ -622,8 +616,11 @@ export default function InternalMarksPage() {
 
           {students.length === 0 && !loadingStudents ? (
             <div className="rounded-xl border border-dashed bg-card p-10 text-center">
-              <p className="text-base font-semibold text-foreground">Course Enrollment Not Configured</p>
-              <p className="mt-1 text-sm text-muted-foreground">This course currently has no enrolled students.</p>
+              <p className="text-base font-semibold text-foreground">No students are enrolled in this academic context</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Students load automatically from Student Management / the course enrollment for this Program · Session · Semester.
+                {selectedCourse?.hierarchyLinked === false && ' This course is not linked to the academic hierarchy yet.'}
+              </p>
               <div className="mt-4 flex justify-center gap-2">
                 <button type="button" onClick={enrollAllClass} className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">Enroll Class Students</button>
                 <button type="button" onClick={openEnrollDialog} className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted">Manage Enrollment</button>

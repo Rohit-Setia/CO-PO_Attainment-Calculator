@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, BookOpen, Users, ClipboardList, Grid3x3, Target,
-  Calculator, FileBarChart, Upload, Settings, ShieldCheck,
+  Calculator, FileBarChart, Upload, Settings, ShieldCheck, BarChart3,
   HelpCircle, LogOut, X, Building2, UserCog,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -27,6 +27,7 @@ const NAV_SECTIONS = [
   {
     heading: 'Output',
     items: [
+      { label: 'OBE Dashboard', to: '/obe-dashboard', icon: BarChart3 },
       { label: 'Reports', to: '/reports', icon: FileBarChart },
       { label: 'Upload Excel', to: '/upload-excel', icon: Upload },
     ],
@@ -162,6 +163,10 @@ export default function Sidebar({ open, onClose }) {
                   <NavLink to="/admin/course-enrollment" className={navLinkClass} onClick={onClose}>
                     <BookOpen className="h-4 w-4 shrink-0" />
                     Course Enrollment
+                  </NavLink>
+                  <NavLink to="/admin/program-outcomes" className={navLinkClass} onClick={onClose}>
+                    <Target className="h-4 w-4 shrink-0" />
+                    Program Outcomes (OBE)
                   </NavLink>
                 </div>
               </div>

@@ -38,7 +38,9 @@ export const AcademicFilterProvider = ({ children }) => {
   // load them once, on first mount of any page that uses the filter.
   useEffect(() => {
     let cancelled = false;
-    setLoadingHierarchy(true);
+    // Deferred so the loading reset isn't a synchronous setState inside the effect
+    // body (react-hooks/set-state-in-effect).
+    Promise.resolve().then(() => { if (!cancelled) setLoadingHierarchy(true); });
     Promise.all([fetchSchools(), fetchSessions()])
       .then(([schoolsRes, sessionsRes]) => {
         if (cancelled) return;

@@ -53,7 +53,8 @@ export default function StudentMasterPage() {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [page, statusFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [page, statusFilter]);
 
   // Debounced search — avoids firing a request on every keystroke.
   useEffect(() => {

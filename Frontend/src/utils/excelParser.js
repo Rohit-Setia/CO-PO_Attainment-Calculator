@@ -286,3 +286,58 @@ export const parseExcel = (
   }
   reader.readAsArrayBuffer(file)
 }
+
+/* =========================
+   PARSE STUDENT EXCEL (Phase 10)
+   =========================
+   The Teacher uploads a student list with columns:
+     Enrollment No / Reg No / Roll No / Student Name / Email / Phone
+
+   The backend derives School, Department, Program, Session, Semester from the
+   course context — the Teacher never enters academic structure information.
+*/
+export const parseStudentExcel = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const wb = XLSX.read(data, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        if (!ws) { reject(new Error("No sheets found in the workbook.")); return; }
+
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        if (rows.length === 0) { reject(new Error("No student rows found.")); return; }
+
+        const headers = Object.keys(rows[0]);
+        const findCol = (aliases) => headers.find((hdr) => aliases.some((a) => norm(hdr).includes(a)));
+
+        const enrollmentCol = findCol(["enrollment", "regno", "reg_no", "registration", "studentid", "studentno"]);
+        const rollCol = findCol(["roll", "rollno", "roll_no"]);
+        const nameCol = findCol(["name", "studentname", "student_name"]);
+        const emailCol = findCol(["email", "e-mail", "mail"]);
+        const phoneCol = findCol(["phone", "mobile", "contact", "telephone"]);
+
+        if (!enrollmentCol || !nameCol) {
+          reject(new Error("Could not find 'Enrollment No' and 'Student Name' columns. Expected headers: Enrollment No, Roll No, Student Name, Email, Phone."));
+          return;
+        }
+
+        const students = rows.map((row, idx) => ({
+          rowNumber: idx + 2,
+          enrollmentNo: String(row[enrollmentCol] || "").trim(),
+          rollNo: rollCol ? String(row[rollCol] || "").trim() : "",
+          name: String(row[nameCol] || "").trim(),
+          email: emailCol ? String(row[emailCol] || "").trim() : "",
+          phone: phoneCol ? String(row[phoneCol] || "").trim() : "",
+        })).filter((s) => s.enrollmentNo && s.name);
+
+        resolve(students);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read file."));
+    reader.readAsArrayBuffer(file);
+  });
+};

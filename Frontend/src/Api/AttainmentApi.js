@@ -55,6 +55,29 @@ export const enrollStudentsInCourse = (courseId, studentIds) =>
 export const unenrollStudentFromCourse = (courseId, studentId) =>
   axiosClient.delete(`/courses/${courseId}/enrollment/${studentId}`);
 
+// ── Student Academic Hierarchy (Phase 10) ──────────────────────────────────
+// Students belong to the course's academic context (Program + Session + Semester).
+// The Teacher uploads only student-specific data; the backend derives the context.
+export const fetchCourseStudents = (courseId) => axiosClient.get(`/courses/${courseId}/students`);
+export const uploadCourseStudents = (courseId, students) =>
+  axiosClient.post(`/courses/${courseId}/students/upload`, { students });
+export const syncCourseEnrollment = (courseId) =>
+  axiosClient.post(`/courses/${courseId}/enrollment/sync-context`);
+
+// ── Program Outcomes (PEO / PO / PSO) — Phase 12 ───────────────────────────
+// The Program owns its outcome definitions; the articulation matrix and attainment
+// views read them dynamically. Writes are restricted to academic-administration roles.
+export const fetchProgramOutcomes = (programId, type) =>
+  axiosClient.get(`/programs/${programId}/outcomes`, { params: type ? { type } : {} });
+export const saveProgramOutcomesBulk = (programId, type, outcomes) =>
+  axiosClient.put(`/programs/${programId}/outcomes`, { type, outcomes });
+export const createProgramOutcome = (programId, outcome) =>
+  axiosClient.post(`/programs/${programId}/outcomes`, outcome);
+export const updateProgramOutcome = (programId, outcomeId, patch) =>
+  axiosClient.put(`/programs/${programId}/outcomes/${outcomeId}`, patch);
+export const deleteProgramOutcome = (programId, outcomeId) =>
+  axiosClient.delete(`/programs/${programId}/outcomes/${outcomeId}`);
+
 // ── Course academic mapping (Phase 3K) ─────────────────────────────────────
 export const mapCourseAcademicContext = (courseId, payload) =>
   axiosClient.put(`/courses/${courseId}/academic-map`, payload);
@@ -129,4 +152,57 @@ export const previewMarksImport = (courseId, payload) =>
   axiosClient.post(`/courses/${courseId}/marks/import-preview`, payload);
 // Step 4 — teacher confirmed. Saves through the existing marks pipeline (upsert — no duplicates).
 export const confirmMarksImport = (courseId, payload) =>
-  axiosClient.post(`/courses/${courseId}/marks/import`, payload);
+  axiosClient.post(`/courses/${courseId}/marks/import`, payload);
+
+// ── Program OBE Analytics & Reporting (Phase 13) ───────────────────────────
+// The backend is the single authoritative calculation source — these helpers only
+// fetch aggregated results (dashboard / attainment / validation / reports).
+const obeParams = (filters = {}) => {
+  const params = {};
+  if (filters.sessionId || filters.batchId) params.sessionId = filters.sessionId || filters.batchId;
+  if (filters.semester && filters.semester !== 'all') params.semester = filters.semester;
+  if (filters.versionLabel) params.versionLabel = filters.versionLabel;
+  return params;
+};
+
+export const fetchProgramOBEDashboard = (programId, filters) =>
+  axiosClient.get(`/programs/${programId}/obe/dashboard`, { params: obeParams(filters) });
+export const fetchProgramCOAttainment = (programId, filters) =>
+  axiosClient.get(`/programs/${programId}/obe/co-attainment`, { params: obeParams(filters) });
+export const fetchProgramPOAttainment = (programId, filters) =>
+  axiosClient.get(`/programs/${programId}/obe/po-attainment`, { params: obeParams(filters) });
+export const fetchProgramPSOAttainment = (programId, filters) =>
+  axiosClient.get(`/programs/${programId}/obe/pso-attainment`, { params: obeParams(filters) });
+export const fetchOutcomeCourseContributions = (programId, outcomeCode, filters) =>
+  axiosClient.get(`/programs/${programId}/obe/course-contributions`, {
+    params: { ...obeParams(filters), [outcomeCode.toUpperCase().startsWith('PSO') ? 'pso' : 'po']: outcomeCode },
+  });
+export const fetchProgramOBEValidation = (programId, filters) =>
+  axiosClient.get(`/programs/${programId}/obe/validation`, { params: obeParams(filters) });
+export const fetchCODrilldownStudents = (programId, courseId, coNumber) =>
+  axiosClient.get(`/programs/${programId}/obe/course/${courseId}/co/${coNumber}/students`);
+
+// Improvement / action plans — historical continuous-improvement records.
+export const fetchActionPlans = (programId, filters) =>
+  axiosClient.get(`/programs/${programId}/obe/action-plans`, { params: obeParams(filters) });
+export const createActionPlanRecord = (programId, payload) =>
+  axiosClient.post(`/programs/${programId}/obe/action-plans`, payload);
+export const updateActionPlanRecord = (programId, planId, patch) =>
+  axiosClient.put(`/programs/${programId}/obe/action-plans/${planId}`, patch);
+export const deleteActionPlanRecord = (programId, planId) =>
+  axiosClient.delete(`/programs/${programId}/obe/action-plans/${planId}`);
+
+// Outcome versions — program curriculum outcome versioning.
+export const fetchOutcomeVersions = (programId) =>
+  axiosClient.get(`/programs/${programId}/obe/outcome-versions`);
+export const createOutcomeVersionRecord = (programId, payload) =>
+  axiosClient.post(`/programs/${programId}/obe/outcome-versions`, payload);
+
+// Report export — format: json | excel | csv | pdf(printable HTML).
+export const downloadOBEReport = async (programId, filters, format) => {
+  const res = await axiosClient.get(`/programs/${programId}/obe/report`, {
+    params: { ...obeParams(filters), format },
+    responseType: format === 'json' ? 'json' : 'blob',
+  });
+  return res.data;
+};

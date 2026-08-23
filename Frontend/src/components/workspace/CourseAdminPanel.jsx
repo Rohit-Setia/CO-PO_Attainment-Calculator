@@ -25,7 +25,8 @@ export default function CourseAdminPanel({ courseId, status, onStatusChanged, re
       .finally(() => setLoadingAssignments(false));
   };
 
-  useEffect(() => { loadAssignments(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [courseId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadAssignments(); }, [courseId]);
 
   const handleStatusChange = async (e) => {
     const nextStatus = e.target.value;

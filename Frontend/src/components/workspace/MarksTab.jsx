@@ -1,4 +1,4 @@
-import { Upload, Users, Loader2, Save, Plus } from "lucide-react";
+import { Upload, Users, Loader2, Save, Plus, Info } from "lucide-react";
 import StudentTable from "../StudentTable";
 import QuestionWiseTable from "../QuestionWiseTable";
 import QuestionConfigPanel from "./QuestionConfigPanel";
@@ -34,8 +34,12 @@ export default function MarksTab({
   removeStudent,
   addStudentRow,
   readOnly = false,
+  course = null,
+  hierarchy = null,
+  studentsAutoLoaded = false,
 }) {
   const isInternal = activeExamType === 'MTT';
+  const contextStudents = hierarchy?.linked && studentsAutoLoaded;
 
   return (
     <div className="space-y-6">
@@ -92,7 +96,16 @@ export default function MarksTab({
             <h4 className="text-lg font-bold text-foreground">
               {activeExamType === "MTT" ? "MTT Assessment Grades Sheet" : "End-Sem ETT Grades Sheet"}
             </h4>
-            <p className="text-xs text-muted-foreground">
+            {hierarchy?.linked && (
+              <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Info className="h-3.5 w-3.5 shrink-0 text-primary" />
+                Students automatically loaded from the academic context:
+                {hierarchy.programName}{hierarchy.programCode ? ` (${hierarchy.programCode})` : ''}
+                {' · '}Semester {course?.semester} · {hierarchy.sessionName}
+                {' · '}{students.length} student{students.length === 1 ? '' : 's'}
+              </p>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">
               {entryMode === 'question'
                 ? 'Marks are entered per question below, using the Question Paper Configuration above.'
                 : 'Enter each student\'s total marks directly per Course Outcome.'}
@@ -101,16 +114,19 @@ export default function MarksTab({
 
           {!readOnly && (
             <div className="flex flex-wrap gap-2">
-              <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-secondary">
+              <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-secondary" title="Optional: bulk import/update marks from an Excel file">
                 <Upload className="h-3.5 w-3.5" /> Import Excel
                 <input type="file" accept=".xlsx, .xls" onChange={handleExcelUpload} className="hidden" />
               </label>
-              <button
-                onClick={addStudentRow}
-                className="flex items-center gap-1 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add Student Row
-              </button>
+              {!contextStudents && (
+                <button
+                  onClick={addStudentRow}
+                  className="flex items-center gap-1 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20"
+                  title={hierarchy?.linked ? 'Students load automatically from Student Management — add rows only for exceptional cases.' : 'Add a manual student row (course not linked to the academic hierarchy).'}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Student Row
+                </button>
+              )}
               <button
                 onClick={saveMarksList}
                 disabled={saving}
@@ -132,8 +148,10 @@ export default function MarksTab({
         ) : students.length === 0 ? (
           <EmptyState
             icon={Users}
-            title="No student rows yet"
-            description="Add rows manually or import via Excel to start entering marks."
+            title={hierarchy?.linked ? "No students are enrolled in this academic context" : "No student rows yet"}
+            description={hierarchy?.linked
+              ? "Upload the student Excel in the Student Management section above, or ask an Administrator to enroll students into this Program / Semester."
+              : "This course is not linked to the academic hierarchy. Add rows manually or import via Excel to start entering marks."}
           />
         ) : entryMode === "question" ? (
           <div className="overflow-x-auto">

@@ -15,7 +15,7 @@ const CourseEnrollmentPage = () => {
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
   const [enrolledStudents, setEnrolledStudents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
   const [loadingEnrollments, setLoadingEnrollments] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
 
@@ -40,7 +40,7 @@ const CourseEnrollmentPage = () => {
       ]);
       setCourses(resCourses.data.data || resCourses.data);
       setClasses(resClasses.data.data);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load courses or classes.');
     } finally {
       setLoading(false);
@@ -52,7 +52,7 @@ const CourseEnrollmentPage = () => {
     try {
       const res = await api.get(`/courses/${courseId}/enrollment`);
       setEnrolledStudents(res.data.data?.students || []);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load enrolled students.');
     } finally {
       setLoadingEnrollments(false);

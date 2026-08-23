@@ -26,6 +26,8 @@ const StudentMappingPage = lazy(() => import('./Pages/StudentMappingPage'));
 const CourseEnrollmentPage = lazy(() => import('./Pages/CourseEnrollmentPage'));
 const AcademicAdministrationPage = lazy(() => import('./Pages/AcademicAdministrationPage'));
 const StudentMasterPage = lazy(() => import('./Pages/StudentMasterPage'));
+const ProgramOutcomeManagement = lazy(() => import('./Pages/ProgramOutcomeManagement'));
+const ProgramOBEDashboard = lazy(() => import('./Pages/ProgramOBEDashboard'));
 
 const ADMIN_ROLES = ['Admin', 'School Admin', 'Department Admin'];
 
@@ -45,87 +47,96 @@ const AppRoutes = () => {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
 
-      <Route
-        element={
-          <ProtectedRoute>
-            <AppShell />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/courses" element={<CoursesPage />} />
-        <Route path="/courses/:id" element={<CourseWorkspace />} />
-        <Route path="/students" element={<StudentsPage />} />
         <Route
-          path="/internal-marks"
-          element={<InternalMarksPage />}
-        />
-        <Route
-          path="/co-mapping"
-          element={<CoursePickerPage title="CO Mapping" description="Select a course to manage its Course Outcomes" icon={Grid3x3} targetTab="config" actionLabel="Manage COs" />}
-        />
-        <Route
-          path="/po-mapping"
-          element={<CoursePickerPage title="PO Mapping" description="Select a course to edit its CO-PO/PSO articulation matrix" icon={Target} targetTab="mapping" actionLabel="Open Matrix" />}
-        />
-        <Route
-          path="/co-po-calculation"
-          element={<CoursePickerPage title="CO-PO Calculation" description="Select a course to view its attainment calculation" icon={Calculator} targetTab="attainment" actionLabel="View Attainment" />}
-        />
-        <Route
-          path="/upload-excel"
-          element={<CoursePickerPage title="Upload Excel" description="Select a course to import student marks from Excel" icon={Upload} targetTab="marks" actionLabel="Upload" />}
-        />
-        <Route
-          path="/reports"
-          element={<CoursePickerPage title="Reports" description="Select a course to export its Excel/JSON report" icon={FileBarChart} targetTab="attainment" actionLabel="Export" />}
-        />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
-        <Route
-          path="/admin"
           element={
-            <ProtectedRoute allowedRoles={['Admin']}>
-              <AdminPanel />
+            <ProtectedRoute>
+              <AppShell />
             </ProtectedRoute>
           }
-        />
-        <Route
-          path="/admin/student-mapping"
-          element={
-            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <StudentMappingPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/course-enrollment"
-          element={
-            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <CourseEnrollmentPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/academic-structure"
-          element={
-            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <AcademicAdministrationPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/student-master"
-          element={
-            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <StudentMasterPage />
-            </ProtectedRoute>
-          }
-        />
-      </Route>
+        >
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/courses" element={<CoursesPage />} />
+          <Route path="/courses/:id" element={<CourseWorkspace />} />
+          <Route path="/students" element={<StudentsPage />} />
+          <Route
+            path="/internal-marks"
+            element={<InternalMarksPage />}
+          />
+          <Route
+            path="/co-mapping"
+            element={<CoursePickerPage title="CO Mapping" description="Select a course to manage its Course Outcomes" icon={Grid3x3} targetTab="config" actionLabel="Manage COs" />}
+          />
+          <Route
+            path="/po-mapping"
+            element={<CoursePickerPage title="PO Mapping" description="Select a course to edit its CO-PO/PSO articulation matrix" icon={Target} targetTab="mapping" actionLabel="Open Matrix" />}
+          />
+          <Route
+            path="/co-po-calculation"
+            element={<CoursePickerPage title="CO-PO Calculation" description="Select a course to view its attainment calculation" icon={Calculator} targetTab="attainment" actionLabel="View Attainment" />}
+          />
+          <Route
+            path="/upload-excel"
+            element={<CoursePickerPage title="Upload Excel" description="Select a course to import student marks from Excel" icon={Upload} targetTab="marks" actionLabel="Upload" />}
+          />
+          <Route
+            path="/reports"
+            element={<CoursePickerPage title="Reports" description="Select a course to export its Excel/JSON report" icon={FileBarChart} targetTab="attainment" actionLabel="Export" />}
+          />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute allowedRoles={['Admin']}>
+                <AdminPanel />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/student-mapping"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <StudentMappingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/course-enrollment"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <CourseEnrollmentPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/academic-structure"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <AcademicAdministrationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/student-master"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <StudentMasterPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/program-outcomes"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <ProgramOutcomeManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/obe-dashboard" element={<ProgramOBEDashboard />} />
+        </Route>
 
-      <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );
