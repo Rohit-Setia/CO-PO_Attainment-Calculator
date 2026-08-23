@@ -1,4 +1,11 @@
 const pool = require('../config/db');
+const { ensureColumn } = require('./universityModel');
+
+// PHASE 7 — additive. Courses previously had no lifecycle state; historical courses with
+// marks must stay reportable, so this adds a soft-status field instead of enabling deletion.
+const addCourseStatusColumn = async () => {
+  await ensureColumn('courses', 'status', "ENUM('Active','Inactive','Archived') NOT NULL DEFAULT 'Active'");
+};
 
 const createCoursesTable = async () => {
   // 1. Create courses table
@@ -168,6 +175,7 @@ const saveCoDescriptions = async (courseId, coDescriptions) => {
 
 module.exports = {
   createCoursesTable,
+  addCourseStatusColumn,
   createUserCourseAssignmentsTable,
   getCoursesByTeacher,
   getCourseById,

@@ -5,6 +5,7 @@ import { Settings, BookOpen, Save, Loader2, Plus, Trash2 } from 'lucide-react';
 import { Skeleton } from '../ui/skeleton';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { addCourseOutcome, archiveCourseOutcome } from '../../Api/AttainmentApi';
+import CourseAdminPanel from './CourseAdminPanel';
 
 const inputClass =
   'w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground transition focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60';
@@ -13,6 +14,7 @@ const smallInputClass =
 
 export default function ConfigTab({
   courseId,
+  course,
   config,
   courseOutcomes,
   saving,
@@ -20,6 +22,7 @@ export default function ConfigTab({
   handleCoFieldChange,
   saveConfigAndCos,
   onOutcomesChanged,
+  onCourseChanged,
   readOnly = false
 }) {
   const [addingCo, setAddingCo] = useState(false);
@@ -240,6 +243,15 @@ export default function ConfigTab({
           <p className="font-bold text-foreground mb-2">How this works</p>
           <p>Each Course Outcome you add here immediately becomes available across the whole workspace — question mapping, CO-PO/PSO mapping, marks entry, attainment, charts, and exports all read the current CO list directly from the server, not a fixed count.</p>
         </div>
+
+        {course && (
+          <CourseAdminPanel
+            courseId={courseId}
+            status={course.status}
+            onStatusChanged={onCourseChanged}
+            readOnly={readOnly}
+          />
+        )}
       </div>
 
       <ConfirmDialog

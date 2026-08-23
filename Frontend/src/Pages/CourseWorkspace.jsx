@@ -8,11 +8,11 @@ import {
   fetchCourseMapping, saveCourseMapping,
   fetchCourseMarks, saveCourseMarks,
   fetchCourseAttainment, downloadCourseExcel,
-  exportCourseJson
+  exportCourseJson, mapCourseAcademicContext,
 } from '../Api/AttainmentApi';
 import {
   Sliders, Grid, Users, TrendingUp, Download,
-  Share2, AlertTriangle, X,
+  Share2, AlertTriangle, X, Loader2,
 } from 'lucide-react';
 import { parseExcel } from '../utils/excelParser';
 import { useAuth } from '../context/AuthContext';
@@ -63,6 +63,7 @@ export default function CourseWorkspace() {
   const [students, setStudents] = useState([]);
   const [draftQuestions, setDraftQuestions] = useState([]);
   const [importIssues, setImportIssues] = useState([]);
+  const [reconciling, setReconciling] = useState(false);
 
   const loadAllData = async () => {
     setLoading(true);
@@ -286,6 +287,27 @@ export default function CourseWorkspace() {
     );
   };
 
+  // Section 20 — legacy department (free text, set at creation) vs. the linked hierarchy's
+  // department can drift; never auto-corrected, only reconciled on explicit administrator
+  // confirmation, and audit-logged server-side (see /courses/:id/academic-map).
+  const departmentMismatch = Boolean(
+    hierarchy?.departmentName && course?.department
+      && hierarchy.departmentName.trim().toLowerCase() !== course.department.trim().toLowerCase(),
+  );
+
+  const handleReconcileDepartment = async () => {
+    setReconciling(true);
+    try {
+      await mapCourseAcademicContext(id, { department: hierarchy.departmentName });
+      toast.success(`Course department updated to "${hierarchy.departmentName}".`);
+      await loadAllData();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reconcile.');
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   const handleExportJson = async () => {
     try {
       const res = await exportCourseJson(id);
@@ -381,6 +403,25 @@ export default function CourseWorkspace() {
             unlinkedNotice="This course is not yet linked to the university academic hierarchy (School / Department / Program / Session) — showing legacy course details only."
           />
 
+          {departmentMismatch && !isReadOnly && (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>
+                  <span className="font-bold">Academic Mapping Warning:</span> Legacy Department "{course.department}" does not match the linked Academic Department "{hierarchy.departmentName}".
+                </span>
+              </span>
+              <button
+                onClick={handleReconcileDepartment}
+                disabled={reconciling}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/20 px-3 py-1.5 text-xs font-semibold text-warning transition hover:bg-warning/30 disabled:opacity-60"
+              >
+                {reconciling && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Reconcile to "{hierarchy.departmentName}"
+              </button>
+            </div>
+          )}
+
           {isReadOnly && (
             <div className="mb-6 flex items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
               <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -423,6 +464,7 @@ export default function CourseWorkspace() {
             <TabsContent value="config">
               <ConfigTab
                 courseId={id}
+                course={course}
                 config={config}
                 courseOutcomes={courseOutcomes}
                 saving={saving}
@@ -430,6 +472,7 @@ export default function CourseWorkspace() {
                 handleCoFieldChange={handleCoFieldChange}
                 saveConfigAndCos={saveConfigAndCos}
                 onOutcomesChanged={loadAllData}
+                onCourseChanged={loadAllData}
                 readOnly={isReadOnly}
               />
             </TabsContent>
