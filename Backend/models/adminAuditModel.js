@@ -20,11 +20,20 @@ const createAdminAuditTable = async () => {
 };
 
 // details is a plain object, stored as JSON text — never sensitive fields (passwords/tokens).
+// Phase 8 hardening: audit logging is append-only and must never cause the primary operation
+// to fail. A failed audit write is logged server-side and silently swallowed; the caller's
+// business logic (student create, course update, etc.) proceeds regardless of audit success.
+// This prevents a hard FK failure (e.g. actor_user_id missing from teachers) from becoming
+// a 500 during the primary operation.
 const logAction = async ({ actorUserId, actorName, action, entityType, entityId, details }) => {
-  await pool.query(
-    'INSERT INTO admin_audit_log (actor_user_id, actor_name, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?, ?)',
-    [actorUserId, actorName || null, action, entityType, entityId || null, details ? JSON.stringify(details) : null],
-  );
+  try {
+    await pool.query(
+      'INSERT INTO admin_audit_log (actor_user_id, actor_name, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?, ?)',
+      [actorUserId, actorName || null, action, entityType, entityId || null, details ? JSON.stringify(details) : null],
+    );
+  } catch (err) {
+    console.error('Audit log write failed (non-fatal):', err.message);
+  }
 };
 
 const getAuditLog = async ({ entityType, entityId, limit = 100 } = {}) => {

@@ -1,0 +1,26 @@
+{
+  "capturedAt": "2026-08-23T17:36:54.754Z",
+  "counts": {
+    "students": 34,
+    "class_students": 29,
+    "course_enrollments": 29,
+    "student_marks": 58,
+    "student_co_marks": 290,
+    "courses": 2,
+    "course_outcomes": 12,
+    "co_po_values": 11,
+    "question_configs": 21,
+    "schools": 1,
+    "departments": 2,
+    "branches": 0,
+    "programs": 1,
+    "academic_sessions": 1,
+    "academic_classes": 2,
+    "teachers": 13,
+    "admin_audit_log": 5,
+    "user_course_assignments": 0,
+    "student_question_marks": 0,
+    "course_configs": 2,
+    "unique_registration_numbers": 34
+  }
+}

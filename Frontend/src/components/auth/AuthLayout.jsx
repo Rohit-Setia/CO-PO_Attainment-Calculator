@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { Award } from 'lucide-react';
 import ThemeToggle from '../ui/ThemeToggle';
 
@@ -13,12 +12,7 @@ const AuthLayout = ({ title, subtitle, children }) => (
       <ThemeToggle />
     </div>
 
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="relative w-full max-w-md"
-    >
+    <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative w-full max-w-md">
       <div className="mb-6 flex flex-col items-center gap-3 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/25">
           <Award className="h-6 w-6 text-primary-foreground" />
@@ -33,7 +27,7 @@ const AuthLayout = ({ title, subtitle, children }) => (
         <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
         <div className="mt-6">{children}</div>
       </div>
-    </motion.div>
+    </div>
   </div>
 );
 

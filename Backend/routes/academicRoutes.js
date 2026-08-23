@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const pool = require('../config/db');
 const protect = require('../middlewares/authMiddleware');
 const { authorizeRoles } = require('../middlewares/roleMiddleware');
 const { authorizeAcademicWrite, applyReadScope } = require('../middlewares/scopeMiddleware');
@@ -44,12 +45,30 @@ router.put('/schools/:id', protect, authorizeAcademicWrite('school'), async (req
 router.get('/departments', protect, async (req, res, next) => {
   try {
     const scoped = applyReadScope(req.user, { schoolId: req.query.schoolId });
-    res.json({ success: true, data: await getDepartmentsBySchool(scoped.schoolId) });
+    res.json({ success: true, data: await getDepartmentsBySchool(scoped.schoolId, scoped.departmentId) });
   } catch (err) { next(err); }
 });
 
+// Scoped read: School Admins may only list departments of their own School; Department
+// Admins only their own Department's School. Other roles see the school's departments
+// (needed for navigation/filters). Never trust client-supplied schoolId for scoped roles.
 router.get('/schools/:id/departments', protect, async (req, res, next) => {
   try {
+    const { role } = req.user;
+    if (role === 'School Admin') {
+      if (!req.user.school_id || String(req.user.school_id) !== String(req.params.id)) {
+        return res.status(403).json({ success: false, message: 'Forbidden: outside your School.' });
+      }
+    }
+    if (role === 'Department Admin') {
+      if (!req.user.department_id) {
+        return res.status(403).json({ success: false, message: 'Forbidden: your account has no Department assigned.' });
+      }
+      const [[dept]] = await pool.query('SELECT school_id FROM departments WHERE id = ?', [req.user.department_id]);
+      if (!dept || String(dept.school_id) !== String(req.params.id)) {
+        return res.status(403).json({ success: false, message: 'Forbidden: outside your School.' });
+      }
+    }
     const rows = await getDepartmentsBySchool(req.params.id);
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
@@ -75,16 +94,36 @@ router.put('/departments/:id', protect, authorizeAcademicWrite('department'), as
 });
 
 // ---------- Branches ----------
+// School Admins see only branches inside their own School (departmentId is narrowed
+// server-side); Department Admins only branches of their own Department.
 router.get('/branches', protect, async (req, res, next) => {
   try {
-    const scoped = applyReadScope(req.user, { departmentId: req.query.departmentId });
-    const rows = await getBranchesByDepartment(scoped.departmentId);
+    const scoped = applyReadScope(req.user, {
+      departmentId: req.query.departmentId,
+      schoolId: req.query.schoolId,
+    });
+    const rows = await getBranchesByDepartment(scoped.departmentId, scoped.schoolId);
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
 });
 
+// Scoped read: School Admins may only read branches of Departments inside their School;
+// Department Admins only their own Department. Other roles read unscoped.
 router.get('/departments/:id/branches', protect, async (req, res, next) => {
   try {
+    const { role } = req.user;
+    const [[dept]] = await pool.query('SELECT school_id FROM departments WHERE id = ?', [req.params.id]);
+    if (!dept) return res.status(404).json({ success: false, message: 'Department not found.' });
+    if (role === 'School Admin') {
+      if (!req.user.school_id || String(req.user.school_id) !== String(dept.school_id)) {
+        return res.status(403).json({ success: false, message: 'Forbidden: outside your School.' });
+      }
+    }
+    if (role === 'Department Admin') {
+      if (String(req.user.department_id) !== String(req.params.id)) {
+        return res.status(403).json({ success: false, message: 'Forbidden: outside your Department.' });
+      }
+    }
     const rows = await getBranchesByDepartment(req.params.id);
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
@@ -167,10 +206,28 @@ router.get('/classes', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Scoped read: School Admins may only view classes of their School; Department Admins only
+// classes of their Department. Other roles read unscoped (class context for navigation).
 router.get('/classes/:id', protect, async (req, res, next) => {
   try {
     const cls = await getClassById(req.params.id);
     if (!cls) return res.status(404).json({ success: false, message: 'Class not found.' });
+    const { role } = req.user;
+    if (role === 'School Admin' || role === 'Department Admin') {
+      const [[row]] = await pool.query(
+        `SELECT d.school_id, p.department_id FROM academic_classes ac
+         LEFT JOIN programs p ON p.id = ac.program_id
+         LEFT JOIN departments d ON d.id = p.department_id WHERE ac.id = ?`,
+        [req.params.id],
+      );
+      if (!row) return res.status(404).json({ success: false, message: 'Class not found.' });
+      if (role === 'School Admin' && (!req.user.school_id || String(row.school_id) !== String(req.user.school_id))) {
+        return res.status(403).json({ success: false, message: 'Forbidden: outside your School.' });
+      }
+      if (role === 'Department Admin' && String(row.department_id) !== String(req.user.department_id)) {
+        return res.status(403).json({ success: false, message: 'Forbidden: outside your Department.' });
+      }
+    }
     res.json({ success: true, data: cls });
   } catch (err) { next(err); }
 });

@@ -1,0 +1,405 @@
+{
+  "capturedAt": "2026-08-23T17:36:31.495Z",
+  "courses": [
+    {
+      "courseId": 2,
+      "courseCode": "3467",
+      "status": 200,
+      "overallCourseAttainment": 2.5,
+      "mttAttainment": {
+        "perCo": {
+          "6": {
+            "co_id": 6,
+            "co_number": 1,
+            "description": "Apply foundational concepts",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 23,
+            "percentAbove": 92,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "7": {
+            "co_id": 7,
+            "co_number": 2,
+            "description": "Analyze software requirements",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 25,
+            "percentAbove": 100,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "8": {
+            "co_id": 8,
+            "co_number": 3,
+            "description": "Design architecture",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 24,
+            "percentAbove": 96,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "9": {
+            "co_id": 9,
+            "co_number": 4,
+            "description": "Implement and test",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 24,
+            "percentAbove": 96,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "10": {
+            "co_id": 10,
+            "co_number": 5,
+            "description": "Deploy and maintain",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 25,
+            "percentAbove": 100,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "12": {
+            "co_id": 12,
+            "co_number": 6,
+            "description": "Course Outcome 6",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 0,
+            "percentAbove": 0,
+            "level": 0,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          }
+        },
+        "CO": 2.5
+      },
+      "ettAttainment": {
+        "perCo": {
+          "6": {
+            "co_id": 6,
+            "co_number": 1,
+            "description": "Apply foundational concepts",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 23,
+            "percentAbove": 92,
+            "level": 3,
+            "thresholdMarks": 8,
+            "maxMarks": 20
+          },
+          "7": {
+            "co_id": 7,
+            "co_number": 2,
+            "description": "Analyze software requirements",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 24,
+            "percentAbove": 96,
+            "level": 3,
+            "thresholdMarks": 8,
+            "maxMarks": 20
+          },
+          "8": {
+            "co_id": 8,
+            "co_number": 3,
+            "description": "Design architecture",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 24,
+            "percentAbove": 96,
+            "level": 3,
+            "thresholdMarks": 8,
+            "maxMarks": 20
+          },
+          "9": {
+            "co_id": 9,
+            "co_number": 4,
+            "description": "Implement and test",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 24,
+            "percentAbove": 96,
+            "level": 3,
+            "thresholdMarks": 8,
+            "maxMarks": 20
+          },
+          "10": {
+            "co_id": 10,
+            "co_number": 5,
+            "description": "Deploy and maintain",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 25,
+            "percentAbove": 100,
+            "level": 3,
+            "thresholdMarks": 8,
+            "maxMarks": 20
+          },
+          "12": {
+            "co_id": 12,
+            "co_number": 6,
+            "description": "Course Outcome 6",
+            "totalStudents": 25,
+            "studentsAboveThreshold": 0,
+            "percentAbove": 0,
+            "level": 0,
+            "thresholdMarks": 8,
+            "maxMarks": 20
+          }
+        },
+        "CO": 2.5
+      },
+      "combinedCO": {
+        "6": {
+          "co_id": 6,
+          "co_number": 1,
+          "description": "Apply foundational concepts",
+          "internalLevel": 3,
+          "externalLevel": 3,
+          "combinedLevel": 3
+        },
+        "7": {
+          "co_id": 7,
+          "co_number": 2,
+          "description": "Analyze software requirements",
+          "internalLevel": 3,
+          "externalLevel": 3,
+          "combinedLevel": 3
+        },
+        "8": {
+          "co_id": 8,
+          "co_number": 3,
+          "description": "Design architecture",
+          "internalLevel": 3,
+          "externalLevel": 3,
+          "combinedLevel": 3
+        },
+        "9": {
+          "co_id": 9,
+          "co_number": 4,
+          "description": "Implement and test",
+          "internalLevel": 3,
+          "externalLevel": 3,
+          "combinedLevel": 3
+        },
+        "10": {
+          "co_id": 10,
+          "co_number": 5,
+          "description": "Deploy and maintain",
+          "internalLevel": 3,
+          "externalLevel": 3,
+          "combinedLevel": 3
+        },
+        "12": {
+          "co_id": 12,
+          "co_number": 6,
+          "description": "Course Outcome 6",
+          "internalLevel": 0,
+          "externalLevel": 0,
+          "combinedLevel": 0
+        }
+      },
+      "poResults": {
+        "po1": 7.5,
+        "po2": 5,
+        "po3": 6.5,
+        "po4": 5,
+        "po5": 5.5,
+        "po6": 2.5,
+        "po7": 3.33,
+        "po8": 2.5,
+        "po9": 3.5,
+        "po10": 3,
+        "po11": 2.5,
+        "po12": 5.5,
+        "pso1": 6,
+        "pso2": 6,
+        "pso3": 5
+      }
+    },
+    {
+      "courseId": 1,
+      "courseCode": "555",
+      "status": 200,
+      "overallCourseAttainment": 2.22,
+      "mttAttainment": {
+        "perCo": {
+          "1": {
+            "co_id": 1,
+            "co_number": 1,
+            "description": "Course Outcome 1",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 4,
+            "percentAbove": 100,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "2": {
+            "co_id": 2,
+            "co_number": 2,
+            "description": "Course Outcome 2",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 4,
+            "percentAbove": 100,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "3": {
+            "co_id": 3,
+            "co_number": 3,
+            "description": "Course Outcome 3",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 3,
+            "percentAbove": 75,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "4": {
+            "co_id": 4,
+            "co_number": 4,
+            "description": "Course Outcome 4",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 1,
+            "percentAbove": 25,
+            "level": 0,
+            "thresholdMarks": 6,
+            "maxMarks": 15
+          },
+          "5": {
+            "co_id": 5,
+            "co_number": 5,
+            "description": "Course Outcome 5",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 1,
+            "percentAbove": 25,
+            "level": 0,
+            "thresholdMarks": 6,
+            "maxMarks": 15
+          }
+        },
+        "CO": 1.8
+      },
+      "ettAttainment": {
+        "perCo": {
+          "1": {
+            "co_id": 1,
+            "co_number": 1,
+            "description": "Course Outcome 1",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 4,
+            "percentAbove": 100,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "2": {
+            "co_id": 2,
+            "co_number": 2,
+            "description": "Course Outcome 2",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 4,
+            "percentAbove": 100,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "3": {
+            "co_id": 3,
+            "co_number": 3,
+            "description": "Course Outcome 3",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 3,
+            "percentAbove": 75,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          },
+          "4": {
+            "co_id": 4,
+            "co_number": 4,
+            "description": "Course Outcome 4",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 1,
+            "percentAbove": 25,
+            "level": 0,
+            "thresholdMarks": 6,
+            "maxMarks": 15
+          },
+          "5": {
+            "co_id": 5,
+            "co_number": 5,
+            "description": "Course Outcome 5",
+            "totalStudents": 4,
+            "studentsAboveThreshold": 4,
+            "percentAbove": 100,
+            "level": 3,
+            "thresholdMarks": 4,
+            "maxMarks": 10
+          }
+        },
+        "CO": 2.4
+      },
+      "combinedCO": {
+        "1": {
+          "co_id": 1,
+          "co_number": 1,
+          "description": "Course Outcome 1",
+          "internalLevel": 3,
+          "externalLevel": 3,
+          "combinedLevel": 3
+        },
+        "2": {
+          "co_id": 2,
+          "co_number": 2,
+          "description": "Course Outcome 2",
+          "internalLevel": 3,
+          "externalLevel": 3,
+          "combinedLevel": 3
+        },
+        "3": {
+          "co_id": 3,
+          "co_number": 3,
+          "description": "Course Outcome 3",
+          "internalLevel": 3,
+          "externalLevel": 3,
+          "combinedLevel": 3
+        },
+        "4": {
+          "co_id": 4,
+          "co_number": 4,
+          "description": "Course Outcome 4",
+          "internalLevel": 0,
+          "externalLevel": 0,
+          "combinedLevel": 0
+        },
+        "5": {
+          "co_id": 5,
+          "co_number": 5,
+          "description": "Course Outcome 5",
+          "internalLevel": 0,
+          "externalLevel": 3,
+          "combinedLevel": 2.1
+        }
+      },
+      "poResults": {
+        "po1": 0,
+        "po2": 0,
+        "po3": 0,
+        "po4": 0,
+        "po5": 0,
+        "po6": 0,
+        "po7": 0,
+        "po8": 0,
+        "po9": 0,
+        "po10": 0,
+        "po11": 0,
+        "po12": 0,
+        "pso1": 0,
+        "pso2": 0,
+        "pso3": 0
+      }
+    }
+  ]
+}

@@ -61,12 +61,13 @@ const deleteSchool = async (id) => {
 };
 
 // ---------- Departments ----------
-const getDepartmentsBySchool = async (schoolId) => {
-  if (schoolId) {
-    const [rows] = await pool.query('SELECT * FROM departments WHERE school_id = ? ORDER BY name ASC', [schoolId]);
-    return rows;
-  }
-  const [rows] = await pool.query('SELECT * FROM departments ORDER BY name ASC');
+const getDepartmentsBySchool = async (schoolId, departmentId) => {
+  const conditions = [];
+  const params = [];
+  if (schoolId) { conditions.push('school_id = ?'); params.push(schoolId); }
+  if (departmentId) { conditions.push('id = ?'); params.push(departmentId); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const [rows] = await pool.query(`SELECT * FROM departments ${where} ORDER BY name ASC`, params);
   return rows;
 };
 
@@ -92,12 +93,18 @@ const updateDepartment = async (id, { name, code, hod, status }) => runOrDuplica
 });
 
 // ---------- Branches (optional) ----------
-const getBranchesByDepartment = async (departmentId) => {
-  if (departmentId) {
-    const [rows] = await pool.query('SELECT * FROM branches WHERE department_id = ? ORDER BY name ASC', [departmentId]);
-    return rows;
+const getBranchesByDepartment = async (departmentId, schoolId) => {
+  const conditions = [];
+  const params = [];
+  let joins = '';
+  if (departmentId) { conditions.push('b.department_id = ?'); params.push(departmentId); }
+  if (schoolId) {
+    joins = 'LEFT JOIN departments d ON d.id = b.department_id';
+    conditions.push('d.school_id = ?');
+    params.push(schoolId);
   }
-  const [rows] = await pool.query('SELECT * FROM branches ORDER BY name ASC');
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const [rows] = await pool.query(`SELECT b.* FROM branches b ${joins} ${where} ORDER BY b.name ASC`, params);
   return rows;
 };
 
