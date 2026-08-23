@@ -331,10 +331,48 @@ const normalizeLegacyStudentSchemaForMaster = async () => {
   // classroom_id is already nullable; nothing to do there.
 };
 
+// PHASE 7 — Section 35 duplicate prevention. `departments.code` and `programs.code` are
+// already globally UNIQUE (added in Phase 2), which satisfies "unique within School/context"
+// trivially. `schools.code` and `academic_classes` (program+session+semester+section) had no
+// constraint at all — added here, idempotently, only after checking live data has no existing
+// collision (verified in Phase 7 audit: none did). MySQL UNIQUE allows multiple NULLs, so an
+// optional `code`/`section` never blocks legitimate rows that simply don't use it.
+const ensureUniqueIndex = async (table, indexName, columns) => {
+  const [rows] = await pool.query(
+    `SELECT INDEX_NAME FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+    [table, indexName],
+  );
+  if (rows.length > 0) return false;
+  await pool.query(`ALTER TABLE ${table} ADD UNIQUE KEY ${indexName} (${columns})`);
+  return true;
+};
+
+// PHASE 7 — real bug fix, found while testing Program creation (Section 10): createProgram()
+// has always inserted into a `degree` column that never actually existed on the live
+// `programs` table, so every program-creation request has 500'd since it was written. The
+// column is genuinely needed (Section 10 lists Degree as a Program field) — added nullable,
+// additive, no data at risk since the column never existed.
+const addProgramDegreeColumn = async () => {
+  await ensureColumn('programs', 'degree', 'VARCHAR(50) DEFAULT NULL AFTER code');
+};
+
+const addPhase7DuplicatePreventionConstraints = async () => {
+  try {
+    await ensureUniqueIndex('schools', 'uniq_school_code', 'code');
+  } catch { /* pre-existing duplicate codes in live data — skip rather than fail startup */ }
+  try {
+    await ensureUniqueIndex('academic_classes', 'uniq_class_context', 'program_id, academic_session_id, semester, section');
+  } catch { /* same as above */ }
+};
+
 module.exports = {
   createUniversityTables,
   migrateLegacyUniversityData,
   normalizeLegacyStudentsTable,
   normalizeProgramsTable,
   normalizeLegacyStudentSchemaForMaster,
+  addProgramDegreeColumn,
+  addPhase7DuplicatePreventionConstraints,
+  ensureColumn,
 };

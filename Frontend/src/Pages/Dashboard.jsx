@@ -93,7 +93,7 @@ export default function Dashboard() {
   const { user } = useAuth();
   const { isDark } = useTheme();
   const {
-    semester, session, setAvailableSemesters, setAvailableSessions,
+    semester, session, availableSemesters, setAvailableSemesters, setAvailableSessions,
     schools, departments, programs, academicSessions,
     schoolId, departmentId, programId, academicSessionId, hierarchySemester, classId,
     hierarchyActive,
@@ -155,7 +155,8 @@ export default function Dashboard() {
     ];
   }, [hierarchyActive, schools, departments, programs, academicSessions, schoolId, departmentId, programId, academicSessionId, hierarchySemester]);
 
-  const filteredCourseIds = useMemo(() => {
+  // The legacy header Semester/Session dropdowns filter client-side over the full course list.
+  const legacyFilteredCourseIds = useMemo(() => {
     if (!courses.length) return null;
     if (semester === 'all' && session === 'all') return null;
     return new Set(filterCoursesByAcademicSelection(courses, semester, session).map((c) => c.id));
@@ -163,18 +164,27 @@ export default function Dashboard() {
 
   const courseAttainment = useMemo(() => {
     const list = summary?.courseAttainment || [];
-    return filteredCourseIds ? list.filter((c) => filteredCourseIds.has(c.courseId)) : list;
-  }, [summary, filteredCourseIds]);
+    return legacyFilteredCourseIds ? list.filter((c) => legacyFilteredCourseIds.has(c.courseId)) : list;
+  }, [summary, legacyFilteredCourseIds]);
 
   const heatmapRows = useMemo(() => {
     const rows = summary?.semesterPoHeatmap || [];
     return semester === 'all' ? rows : rows.filter((r) => String(r.semester) === String(semester));
   }, [summary, semester]);
 
-  const filteredCourses = useMemo(
-    () => (filteredCourseIds ? courses.filter((c) => filteredCourseIds.has(c.id)) : courses),
-    [courses, filteredCourseIds],
-  );
+  // The Total Courses metric and Recent Courses list must reflect BOTH the legacy dropdowns
+  // AND the new hierarchy filter — otherwise selecting a School/Department could show
+  // "0 students, no attainment data" while still listing courses outside that scope (stale,
+  // contradictory data, which Phase 6 explicitly rules out). `summary.courseAttainment` is
+  // already server-filtered by the hierarchy selection, so its course-id set is authoritative
+  // for hierarchy scoping; `courseAttainment` above further narrows it by the legacy filter.
+  const filteredCourses = useMemo(() => {
+    if (!hierarchyActive) {
+      return legacyFilteredCourseIds ? courses.filter((c) => legacyFilteredCourseIds.has(c.id)) : courses;
+    }
+    const scopedIds = new Set(courseAttainment.map((c) => c.courseId));
+    return courses.filter((c) => scopedIds.has(c.id));
+  }, [courses, legacyFilteredCourseIds, hierarchyActive, courseAttainment]);
 
   const recentCourses = useMemo(
     () => [...filteredCourses].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 5),

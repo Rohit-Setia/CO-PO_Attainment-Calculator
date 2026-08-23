@@ -66,12 +66,14 @@ router.put(
   [
     body('role')
       .optional()
-      .isIn(['Admin', 'Examination Team', 'Teacher', 'Viewer'])
+      .isIn(['Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin'])
       .withMessage('Invalid role value'),
     body('is_active')
       .optional()
       .isBoolean()
       .withMessage('is_active must be a boolean'),
+    body('school_id').optional({ nullable: true }).isInt().withMessage('school_id must be an integer'),
+    body('department_id').optional({ nullable: true }).isInt().withMessage('department_id must be an integer'),
   ],
   validateRequest,
   updateUser,

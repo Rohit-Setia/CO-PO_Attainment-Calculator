@@ -35,8 +35,8 @@ const CourseEnrollmentPage = () => {
     setLoading(true);
     try {
       const [resCourses, resClasses] = await Promise.all([
-        api.get('/api/courses'),
-        api.get('/api/classes')
+        api.get('/courses'),
+        api.get('/classes')
       ]);
       setCourses(resCourses.data.data || resCourses.data);
       setClasses(resClasses.data.data);
@@ -50,7 +50,7 @@ const CourseEnrollmentPage = () => {
   const fetchEnrollments = async (courseId) => {
     setLoadingEnrollments(true);
     try {
-      const res = await api.get(`/api/courses/${courseId}/enrollment`);
+      const res = await api.get(`/courses/${courseId}/enrollment`);
       setEnrolledStudents(res.data.data?.students || []);
     } catch (err) {
       toast.error('Failed to load enrolled students.');
@@ -67,7 +67,7 @@ const CourseEnrollmentPage = () => {
     setIsEnrolling(true);
     try {
       // 1. Get all students in the selected class
-      const resClassStudents = await api.get(`/api/classes/${selectedClass}/students`);
+      const resClassStudents = await api.get(`/classes/${selectedClass}/students`);
       const classStudents = resClassStudents.data.data || [];
       
       if (classStudents.length === 0) {
@@ -78,7 +78,7 @@ const CourseEnrollmentPage = () => {
 
       // 2. Add them to the course
       const studentIds = classStudents.map(s => s.id);
-      await api.post(`/api/courses/${selectedCourse}/enrollment`, { studentIds });
+      await api.post(`/courses/${selectedCourse}/enrollment`, { studentIds });
       
       toast.success(`Successfully enrolled ${studentIds.length} students to the course!`);
       fetchEnrollments(selectedCourse);

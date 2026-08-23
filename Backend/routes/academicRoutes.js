@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const protect = require('../middlewares/authMiddleware');
 const { authorizeRoles } = require('../middlewares/roleMiddleware');
+const { authorizeAcademicWrite, applyReadScope } = require('../middlewares/scopeMiddleware');
+const { logAction } = require('../models/adminAuditModel');
 const {
   getAllSchools, createSchool, updateSchool,
   getDepartmentsBySchool, createDepartment, updateDepartment,
@@ -10,37 +12,40 @@ const {
   getAllSessions, createSession, updateSession,
   getClasses, getClassById, createClass, updateClass,
 } = require('../models/academicModel');
-const {
-  createStudent, updateStudent, getStudentById, listStudents, mapStudentToClass, findStudentByAnyIdentifier,
-} = require('../models/studentMasterModel');
 
 // ---------- Schools ----------
+// Always unscoped — every authenticated user can see the list of Schools (needed for basic
+// navigation/filters); write access is what's actually scoped (see authorizeAcademicWrite).
 router.get('/schools', protect, async (req, res, next) => {
   try { res.json({ success: true, data: await getAllSchools() }); }
   catch (err) { next(err); }
 });
 
-router.post('/schools', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.post('/schools', protect, authorizeAcademicWrite('school'), async (req, res, next) => {
   try {
     const { name, code, description } = req.body;
     if (!name) return res.status(400).json({ success: false, message: 'School name is required.' });
     const id = await createSchool({ name, code, description });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'create', entityType: 'school', entityId: id, details: { name, code } });
     res.status(201).json({ success: true, message: 'School created.', data: { id } });
   } catch (err) { next(err); }
 });
 
-router.put('/schools/:id', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.put('/schools/:id', protect, authorizeAcademicWrite('school'), async (req, res, next) => {
   try {
     const updated = await updateSchool(req.params.id, req.body);
     if (!updated) return res.status(404).json({ success: false, message: 'School not found.' });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update', entityType: 'school', entityId: req.params.id, details: req.body });
     res.json({ success: true, message: 'School updated.' });
   } catch (err) { next(err); }
 });
 
 // ---------- Departments ----------
 router.get('/departments', protect, async (req, res, next) => {
-  try { res.json({ success: true, data: await getDepartmentsBySchool(req.query.schoolId) }); }
-  catch (err) { next(err); }
+  try {
+    const scoped = applyReadScope(req.user, { schoolId: req.query.schoolId });
+    res.json({ success: true, data: await getDepartmentsBySchool(scoped.schoolId) });
+  } catch (err) { next(err); }
 });
 
 router.get('/schools/:id/departments', protect, async (req, res, next) => {
@@ -50,24 +55,34 @@ router.get('/schools/:id/departments', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/departments', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.post('/departments', protect, authorizeAcademicWrite('department'), async (req, res, next) => {
   try {
     const { schoolId, name, code, hod } = req.body;
     if (!schoolId || !name) return res.status(400).json({ success: false, message: 'schoolId and name are required.' });
     const id = await createDepartment({ schoolId, name, code, hod });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'create', entityType: 'department', entityId: id, details: { schoolId, name, code } });
     res.status(201).json({ success: true, message: 'Department created.', data: { id } });
   } catch (err) { next(err); }
 });
 
-router.put('/departments/:id', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.put('/departments/:id', protect, authorizeAcademicWrite('department'), async (req, res, next) => {
   try {
     const updated = await updateDepartment(req.params.id, req.body);
     if (!updated) return res.status(404).json({ success: false, message: 'Department not found.' });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update', entityType: 'department', entityId: req.params.id, details: req.body });
     res.json({ success: true, message: 'Department updated.' });
   } catch (err) { next(err); }
 });
 
 // ---------- Branches ----------
+router.get('/branches', protect, async (req, res, next) => {
+  try {
+    const scoped = applyReadScope(req.user, { departmentId: req.query.departmentId });
+    const rows = await getBranchesByDepartment(scoped.departmentId);
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
 router.get('/departments/:id/branches', protect, async (req, res, next) => {
   try {
     const rows = await getBranchesByDepartment(req.params.id);
@@ -75,57 +90,66 @@ router.get('/departments/:id/branches', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/branches', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.post('/branches', protect, authorizeAcademicWrite('branch'), async (req, res, next) => {
   try {
     const { departmentId, name, code } = req.body;
     if (!departmentId || !name) return res.status(400).json({ success: false, message: 'departmentId and name are required.' });
     const id = await createBranch({ departmentId, name, code });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'create', entityType: 'branch', entityId: id, details: { departmentId, name, code } });
     res.status(201).json({ success: true, message: 'Branch created.', data: { id } });
   } catch (err) { next(err); }
 });
 
 // ---------- Programs ----------
 router.get('/programs', protect, async (req, res, next) => {
-  try { res.json({ success: true, data: await getProgramsByDepartment(req.query.departmentId) }); }
-  catch (err) { next(err); }
+  try {
+    const scoped = applyReadScope(req.user, { departmentId: req.query.departmentId });
+    res.json({ success: true, data: await getProgramsByDepartment(scoped.departmentId, scoped.schoolId) });
+  } catch (err) { next(err); }
 });
 
-router.post('/programs', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.post('/programs', protect, authorizeAcademicWrite('program'), async (req, res, next) => {
   try {
     const { departmentId, branchId, name, code, degree, duration } = req.body;
     if (!departmentId || !name) return res.status(400).json({ success: false, message: 'departmentId and name are required.' });
     const id = await createProgram({ departmentId, branchId, name, code, degree, duration });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'create', entityType: 'program', entityId: id, details: { departmentId, branchId, name, code } });
     res.status(201).json({ success: true, message: 'Program created.', data: { id } });
   } catch (err) { next(err); }
 });
 
-router.put('/programs/:id', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.put('/programs/:id', protect, authorizeAcademicWrite('program'), async (req, res, next) => {
   try {
     const updated = await updateProgram(req.params.id, req.body);
     if (!updated) return res.status(404).json({ success: false, message: 'Program not found.' });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update', entityType: 'program', entityId: req.params.id, details: req.body });
     res.json({ success: true, message: 'Program updated.' });
   } catch (err) { next(err); }
 });
 
 // ---------- Academic Sessions ----------
+// University-wide (calendar-level) infrastructure — not School/Department-scoped, so these
+// stay Admin-only, matching Phase 7 Section 11 (no School/Department mention there at all).
 router.get('/sessions', protect, async (req, res, next) => {
   try { res.json({ success: true, data: await getAllSessions() }); }
   catch (err) { next(err); }
 });
 
-router.post('/sessions', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.post('/sessions', protect, authorizeRoles('Admin'), async (req, res, next) => {
   try {
     const { name, startYear, endYear } = req.body;
     if (!name) return res.status(400).json({ success: false, message: 'Session name is required.' });
     const id = await createSession({ name, startYear, endYear });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'create', entityType: 'session', entityId: id, details: { name, startYear, endYear } });
     res.status(201).json({ success: true, message: 'Session created.', data: { id } });
   } catch (err) { next(err); }
 });
 
-router.put('/sessions/:id', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.put('/sessions/:id', protect, authorizeRoles('Admin'), async (req, res, next) => {
   try {
     const updated = await updateSession(req.params.id, req.body);
     if (!updated) return res.status(404).json({ success: false, message: 'Session not found.' });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update', entityType: 'session', entityId: req.params.id, details: req.body });
     res.json({ success: true, message: 'Session updated.' });
   } catch (err) { next(err); }
 });
@@ -133,12 +157,12 @@ router.put('/sessions/:id', protect, authorizeRoles('Admin', 'Examination Team')
 // ---------- Academic Classes ----------
 router.get('/classes', protect, async (req, res, next) => {
   try {
-    const filters = {
+    const filters = applyReadScope(req.user, {
       programId: req.query.programId,
       sessionId: req.query.sessionId,
       semester: req.query.semester,
       section: req.query.section,
-    };
+    });
     res.json({ success: true, data: await getClasses(filters) });
   } catch (err) { next(err); }
 });
@@ -151,21 +175,23 @@ router.get('/classes/:id', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/classes', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.post('/classes', protect, authorizeAcademicWrite('class'), async (req, res, next) => {
   try {
     const { programId, sessionId, semester, section } = req.body;
     if (!programId || !sessionId || !semester) {
       return res.status(400).json({ success: false, message: 'programId, sessionId and semester are required.' });
     }
     const id = await createClass({ programId, sessionId, semester, section });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'create', entityType: 'class', entityId: id, details: { programId, sessionId, semester, section } });
     res.status(201).json({ success: true, message: 'Academic class created.', data: { id } });
   } catch (err) { next(err); }
 });
 
-router.put('/classes/:id', protect, authorizeRoles('Admin', 'Examination Team'), async (req, res, next) => {
+router.put('/classes/:id', protect, authorizeAcademicWrite('class'), async (req, res, next) => {
   try {
     const updated = await updateClass(req.params.id, req.body);
     if (!updated) return res.status(404).json({ success: false, message: 'Class not found.' });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update', entityType: 'class', entityId: req.params.id, details: req.body });
     res.json({ success: true, message: 'Class updated.' });
   } catch (err) { next(err); }
 });

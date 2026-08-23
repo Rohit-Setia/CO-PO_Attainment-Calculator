@@ -19,6 +19,13 @@ import CourseWorkspace from './Pages/CourseWorkspace';
 import AdminPanel from './Pages/AdminPanel';
 import StudentMappingPage from './Pages/StudentMappingPage';
 import CourseEnrollmentPage from './Pages/CourseEnrollmentPage';
+import AcademicAdministrationPage from './Pages/AcademicAdministrationPage';
+import StudentMasterPage from './Pages/StudentMasterPage';
+
+// Phase 7 — Schools/Departments/Programs/Sessions/Classes and the Student Master are managed
+// by University Admin, School Admin, or Department Admin (each additionally scoped server-side
+// to their own School/Department — the route guard here is coarse, the backend is authoritative).
+const ADMIN_ROLES = ['Admin', 'School Admin', 'Department Admin'];
 
 const AppRoutes = () => {
   const { isAuthenticated } = useAuth();
@@ -76,7 +83,7 @@ const AppRoutes = () => {
         <Route
           path="/admin/student-mapping"
           element={
-            <ProtectedRoute allowedRoles={['Admin']}>
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
               <StudentMappingPage />
             </ProtectedRoute>
           }
@@ -84,8 +91,24 @@ const AppRoutes = () => {
         <Route
           path="/admin/course-enrollment"
           element={
-            <ProtectedRoute allowedRoles={['Admin']}>
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
               <CourseEnrollmentPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/academic-structure"
+          element={
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+              <AcademicAdministrationPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/student-master"
+          element={
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+              <StudentMasterPage />
             </ProtectedRoute>
           }
         />
