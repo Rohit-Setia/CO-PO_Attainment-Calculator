@@ -100,12 +100,14 @@ const addCourseOutcome = async (courseId, { description, max_internal, max_exter
   return getOutcomeById(result.insertId);
 };
 
-const updateCourseOutcome = async (id, { description, max_internal, max_external }) => {
+const updateCourseOutcome = async (id, { description, max_internal, max_external, target_percent }) => {
   const fields = [];
   const values = [];
   if (description !== undefined) { fields.push('description = ?'); values.push(description); }
   if (max_internal !== undefined) { fields.push('max_internal = ?'); values.push(max_internal); }
   if (max_external !== undefined) { fields.push('max_external = ?'); values.push(max_external); }
+  // Phase 13 — configurable CO attainment target (% of students / level scale, default 60).
+  if (target_percent !== undefined) { fields.push('target_percent = ?'); values.push(target_percent); }
   if (fields.length === 0) return false;
 
   values.push(id);

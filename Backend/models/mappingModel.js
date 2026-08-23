@@ -210,9 +210,14 @@ const migrateLegacyMappingToCoPoValues = async () => {
 };
 
 // Returns one row per active CO: { co_id, co_number, description, po1..po12, pso1..pso3 }
+// IMPORTANT: the co_po_values columns are listed EXPLICITLY (never `cpv.*`) so the outcome's
+// own id is the row's `co_id`. With `cpv.*`, the duplicate `co_id` column from the LEFT JOIN
+// (NULL for COs without a saved mapping row) overwrites `co.id AS co_id`, producing rows keyed
+// by null — which silently breaks every mapping dropdown for courses with no saved mappings.
 const getCoPoValuesForCourse = async (courseId) => {
+  const selectCols = PO_PSO_COLUMNS.map((c) => `cpv.${c}`).join(', ');
   const [rows] = await pool.query(
-    `SELECT co.id as co_id, co.co_number, co.description, cpv.*
+    `SELECT co.id AS co_id, co.co_number, co.description, ${selectCols}
      FROM course_outcomes co
      LEFT JOIN co_po_values cpv ON cpv.co_id = co.id
      WHERE co.course_id = ? AND co.is_active = 1

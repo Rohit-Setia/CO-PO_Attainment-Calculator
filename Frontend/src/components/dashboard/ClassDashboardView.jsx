@@ -19,7 +19,9 @@ export default function ClassDashboardView({ classId }) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    // Deferred so the loading reset isn't a synchronous setState inside the effect
+    // body (react-hooks/set-state-in-effect) while still showing the skeleton on switch.
+    Promise.resolve().then(() => { if (!cancelled) setLoading(true); });
     fetchClassDashboard(classId)
       .then((res) => { if (!cancelled) { setData(res.data.data); setError(''); } })
       .catch(() => { if (!cancelled) setError('Could not load this class/section.'); })

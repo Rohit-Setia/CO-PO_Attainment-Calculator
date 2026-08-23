@@ -39,6 +39,7 @@ const getLevelBadge = (level) => {
 export default function AttainmentTab({
   attainment,
   courseOutcomes = [],
+  programOutcomes,
   config,
 }) {
   const { isDark } = useTheme();
@@ -86,30 +87,57 @@ export default function AttainmentTab({
     });
   }, [attainment, courseOutcomes, hasMttData, hasEttData]);
 
-  // PO & PSO radar/bar chart data
+  // PO & PSO radar/bar chart data — labels come from the program's own outcome definitions
+  // when available (never a hardcoded list), falling back to PO1..PO12 / PSO1..PSO3.
   const poChartData = useMemo(() => {
     if (!attainment?.poResults || !hasPoData) return [];
+    const poDefs = (programOutcomes?.PO || []).filter((d) => /^po\d+$/i.test(d.code));
+    const psoDefs = (programOutcomes?.PSO || []).filter((d) => /^pso\d+$/i.test(d.code));
     const data = [];
-    for (let po = 1; po <= 12; po++) {
-      const key = `po${po}`;
+    poDefs.forEach((def, idx) => {
+      const key = `po${idx + 1}`;
       data.push({
-        subject: `PO${po}`,
+        subject: def.code || `PO${idx + 1}`,
+        title: def.title || '',
         Attainment: parseFloat(attainment.poResults[key]) || 0,
         averageCorrelation: attainment.poAverages ? (parseFloat(attainment.poAverages[key]) || 0) : null,
         fullMark: 3,
       });
+    });
+    if (poDefs.length === 0) {
+      for (let po = 1; po <= 12; po++) {
+        const key = `po${po}`;
+        data.push({
+          subject: `PO${po}`,
+          Attainment: parseFloat(attainment.poResults[key]) || 0,
+          averageCorrelation: attainment.poAverages ? (parseFloat(attainment.poAverages[key]) || 0) : null,
+          fullMark: 3,
+        });
+      }
     }
-    for (let pso = 1; pso <= 3; pso++) {
-      const key = `pso${pso}`;
+    psoDefs.forEach((def, idx) => {
+      const key = `pso${idx + 1}`;
       data.push({
-        subject: `PSO${pso}`,
+        subject: def.code || `PSO${idx + 1}`,
+        title: def.title || '',
         Attainment: parseFloat(attainment.poResults[key]) || 0,
         averageCorrelation: attainment.poAverages ? (parseFloat(attainment.poAverages[key]) || 0) : null,
         fullMark: 3,
       });
+    });
+    if (psoDefs.length === 0) {
+      for (let pso = 1; pso <= 3; pso++) {
+        const key = `pso${pso}`;
+        data.push({
+          subject: `PSO${pso}`,
+          Attainment: parseFloat(attainment.poResults[key]) || 0,
+          averageCorrelation: attainment.poAverages ? (parseFloat(attainment.poAverages[key]) || 0) : null,
+          fullMark: 3,
+        });
+      }
     }
     return data;
-  }, [attainment, hasPoData]);
+  }, [attainment, hasPoData, programOutcomes]);
 
   if (!courseOutcomes || courseOutcomes.length === 0) {
     return (
@@ -416,13 +444,17 @@ export default function AttainmentTab({
             <div className="space-y-4 rounded-2xl border border-border bg-card p-6 shadow-sm lg:col-span-2">
               <h5 className="text-sm font-bold text-foreground uppercase tracking-wider text-muted-foreground">PO & PSO Attainment Grid</h5>
               <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5">
-                {Array.from({ length: 12 }).map((_, i) => {
-                  const poKey = `po${i + 1}`;
+                {(programOutcomes?.PO?.length
+                  ? programOutcomes.PO.filter((d) => /^po\d+$/i.test(d.code))
+                  : Array.from({ length: 12 }, (_, i) => ({ code: `PO${i + 1}`, title: '' }))
+                ).map((def) => {
+                  const poNum = parseInt(def.code.slice(2), 10);
+                  const poKey = `po${poNum}`;
                   const val = attainment.poResults?.[poKey] ?? 0.00;
                   const avg = attainment.poAverages?.[poKey];
                   return (
-                    <div key={poKey} className="rounded-xl border border-border bg-muted/30 p-3 text-center hover:border-primary/40 transition-colors">
-                      <p className="text-xs font-bold text-muted-foreground">PO{i + 1}</p>
+                    <div key={poKey} className="rounded-xl border border-border bg-muted/30 p-3 text-center hover:border-primary/40 transition-colors" title={def.title || def.description || ''}>
+                      <p className="text-xs font-bold text-muted-foreground">{def.code}</p>
                       <p className="mt-1 text-xl font-extrabold text-primary">{Number(val).toFixed(2)}</p>
                       {avg !== undefined && (
                         <p className="mt-0.5 text-[10px] text-muted-foreground">Avg: {Number(avg).toFixed(2)}</p>
@@ -430,13 +462,17 @@ export default function AttainmentTab({
                     </div>
                   );
                 })}
-                {Array.from({ length: 3 }).map((_, i) => {
-                  const psoKey = `pso${i + 1}`;
+                {(programOutcomes?.PSO?.length
+                  ? programOutcomes.PSO.filter((d) => /^pso\d+$/i.test(d.code))
+                  : Array.from({ length: 3 }, (_, i) => ({ code: `PSO${i + 1}`, title: '' }))
+                ).map((def) => {
+                  const psoNum = parseInt(def.code.slice(3), 10);
+                  const psoKey = `pso${psoNum}`;
                   const val = attainment.poResults?.[psoKey] ?? 0.00;
                   const avg = attainment.poAverages?.[psoKey];
                   return (
-                    <div key={psoKey} className="rounded-xl border border-border bg-muted/30 p-3 text-center hover:border-warning/40 transition-colors">
-                      <p className="text-xs font-bold text-muted-foreground">PSO{i + 1}</p>
+                    <div key={psoKey} className="rounded-xl border border-border bg-muted/30 p-3 text-center hover:border-warning/40 transition-colors" title={def.title || def.description || ''}>
+                      <p className="text-xs font-bold text-muted-foreground">{def.code}</p>
                       <p className="mt-1 text-xl font-extrabold text-amber-500">{Number(val).toFixed(2)}</p>
                       {avg !== undefined && (
                         <p className="mt-0.5 text-[10px] text-muted-foreground">Avg: {Number(avg).toFixed(2)}</p>

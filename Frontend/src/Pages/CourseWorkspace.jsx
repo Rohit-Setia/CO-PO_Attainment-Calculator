@@ -28,6 +28,7 @@ import ConfigTab from '../components/workspace/ConfigTab';
 import MappingTab from '../components/workspace/MappingTab';
 import MarksTab from '../components/workspace/MarksTab';
 import AttainmentTab from '../components/workspace/AttainmentTab';
+import StudentManagementPanel from '../components/workspace/StudentManagementPanel';
 
 const emptyStudent = () => ({ name: '', roll: '', reg_no: '', totalMarks: 0, coMarks: {}, questionMarks: {} });
 
@@ -44,7 +45,7 @@ export default function CourseWorkspace() {
   const [hierarchy, setHierarchy] = useState(null);
   const [config, setConfig] = useState(null);
   const [courseOutcomes, setCourseOutcomes] = useState(null);
-  const [mapping, setMapping] = useState({ values: [], averages: {} });
+  const [mapping, setMapping] = useState({ values: [], averages: {}, programOutcomes: { PO: [], PSO: [] } });
   const [marks, setMarks] = useState({ mtt: [], ett: [] });
   const [questionConfigs, setQuestionConfigs] = useState({ MTT: [], ETT: [] });
   const [maxQuestionsAllowed, setMaxQuestionsAllowed] = useState(50);
@@ -75,7 +76,7 @@ export default function CourseWorkspace() {
       setCourseOutcomes(configRes.data.data.outcomes);
 
       const mappingRes = await fetchCourseMapping(id);
-      setMapping(mappingRes.data.data || { values: [], averages: {} });
+      setMapping(mappingRes.data.data || { values: [], averages: {}, programOutcomes: { PO: [], PSO: [] } });
 
       const marksRes = await fetchCourseMarks(id);
       setMarks(marksRes.data.data);
@@ -154,11 +155,20 @@ export default function CourseWorkspace() {
   };
 
   // ── Mapping handlers ──────────────────────────────────────────────────────
+  // Update the CO's row if present; otherwise APPEND a new row so a selection is never
+  // silently lost when the backend returns no pre-existing mapping row for that CO.
   const handleMappingChange = (coId, key, value) => {
-    setMapping((prev) => ({
-      ...prev,
-      values: prev.values.map((v) => (v.co_id === coId ? { ...v, [key]: parseInt(value) || 0 } : v)),
-    }));
+    const num = parseInt(value, 10) || 0;
+    setMapping((prev) => {
+      const exists = prev.values.some((v) => v.co_id === coId);
+      if (!exists) {
+        return { ...prev, values: [...prev.values, { co_id: coId, [key]: num }] };
+      }
+      return {
+        ...prev,
+        values: prev.values.map((v) => (v.co_id === coId ? { ...v, [key]: num } : v)),
+      };
+    });
   };
 
   const saveMappingMatrix = async () => {
@@ -167,7 +177,7 @@ export default function CourseWorkspace() {
       await saveCourseMapping(id, { values: mapping.values });
       toast.success('CO-PO mapping saved.');
       const mappingRes = await fetchCourseMapping(id);
-      setMapping(mappingRes.data.data || { values: [], averages: {} });
+      setMapping(mappingRes.data.data || { values: [], averages: {}, programOutcomes: { PO: [], PSO: [] } });
       await triggerAttainmentRecalc();
     } catch (err) {
       console.error('Failed to save mapping matrix:', err);
@@ -351,7 +361,11 @@ export default function CourseWorkspace() {
   // 'Course Workspace'/'' until the course loads, then update once, in place.
   usePageHeader({
     title: course ? `${course.subject_name} (${course.course_code})` : 'Course Workspace',
-    subtitle: course ? `${course.school} • ${course.department} • Sem ${course.semester} (${course.academic_year})` : '',
+    subtitle: course
+      ? hierarchy?.linked
+        ? `${hierarchy.schoolName} • ${hierarchy.departmentName} • ${hierarchy.programName} • Sem ${course.semester} (${hierarchy.sessionName || course.academic_year})`
+        : `${course.school} • ${course.department} • Sem ${course.semester} (${course.academic_year})`
+      : '',
     actions: course ? (
       <>
         <button
@@ -448,6 +462,47 @@ export default function CourseWorkspace() {
             </div>
           )}
 
+          {/* Phase 9 — Academic Details: everything the Admin configured for this course, read
+              from the same hierarchy tables (never a Teacher-entered copy). Read-only. */}
+          {hierarchy?.linked && (
+            <div className="mb-6 grid gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-0.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Academic Details</p>
+                <p className="text-sm font-semibold text-foreground">{hierarchy.schoolName || '—'}</p>
+                <p className="text-[11px] text-muted-foreground">{hierarchy.departmentName || '—'}</p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Program Details</p>
+                <p className="text-sm font-semibold text-foreground">{hierarchy.programName || '—'}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {[hierarchy.programCode, hierarchy.programDegree].filter(Boolean).join(' · ') || '—'}
+                  {hierarchy.programDuration ? ` · ${hierarchy.programDuration} year(s) · ${hierarchy.programTotalSemesters} semesters` : ''}
+                </p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Course Details</p>
+                <p className="text-sm font-semibold text-foreground">{course.subject_name}</p>
+                <p className="text-[11px] text-muted-foreground">{course.course_code} · Sem {course.semester} · {course.num_cos} COs</p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Academic Year</p>
+                <p className="text-sm font-semibold text-foreground">{hierarchy.sessionName || course.academic_year || '—'}</p>
+                <p className="text-[11px] text-muted-foreground">Configured by Admin</p>
+              </div>
+            </div>
+          )}
+
+          {/* Phase 10 — Student Management for this course's academic context. The Teacher
+              uploads only student-specific data; the backend derives School/Department/
+              Program/Session/Semester from the course. */}
+          <StudentManagementPanel
+            courseId={id}
+            course={course}
+            hierarchy={hierarchy}
+            readOnly={isReadOnly}
+            onStudentsChanged={loadAllData}
+          />
+
           <Tabs value={activeTab} onValueChange={(tab) => {
             setActiveTab(tab);
             if (tab === 'attainment') {
@@ -482,6 +537,7 @@ export default function CourseWorkspace() {
                 courseOutcomes={courseOutcomes}
                 mappingValues={mapping.values}
                 mappingAverages={mapping.averages}
+                programOutcomes={mapping.programOutcomes}
                 saving={saving}
                 handleMappingChange={handleMappingChange}
                 saveMappingMatrix={saveMappingMatrix}
@@ -513,6 +569,9 @@ export default function CourseWorkspace() {
                 removeStudent={removeStudent}
                 addStudentRow={addStudentRow}
                 readOnly={isReadOnly}
+                course={course}
+                hierarchy={hierarchy}
+                studentsAutoLoaded={Boolean(hierarchy?.linked)}
               />
             </TabsContent>
 
@@ -520,6 +579,7 @@ export default function CourseWorkspace() {
               <AttainmentTab
                 attainment={attainment}
                 courseOutcomes={courseOutcomes}
+                programOutcomes={mapping.programOutcomes}
                 config={config}
               />
             </TabsContent>

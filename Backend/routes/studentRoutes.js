@@ -9,8 +9,35 @@ const {
   getStudentsForClass, removeStudentFromClass, addManyStudentsToClass,
 } = require('../models/academicModel');
 const {
-  createStudent, updateStudent, getStudentById, listStudents, mapStudentToClass, findStudentByAnyIdentifier,
+  createStudent, updateStudent, getStudentById, listStudents, mapStudentToClass,
+  findStudentByAnyIdentifier, findStudentInContext, getStudentsByContext,
+  enrollStudentInAllContextCourses,
 } = require('../models/studentMasterModel');
+const { getCourseById } = require('../models/courseModel');
+const { getProgramByIdWithContext } = require('../models/academicModel');
+
+// Phase 10 — validates a student academic context (Program + Session + Semester):
+//   - the Program must exist
+//   - the Session must exist
+//   - the semester must be within 1 → program.total_semesters (duration × 2, never hardcoded)
+// Returns { ok, error } — never trusts client-supplied school/department names; those are
+// always derived from the Program's own Department → School relationship.
+const validateStudentContext = async ({ programId, sessionId, semester }) => {
+  if (!programId) return { ok: false, error: 'programId is required for a student academic context.' };
+  const program = await getProgramByIdWithContext(programId);
+  if (!program) return { ok: false, error: 'The selected Program does not exist.' };
+  if (!sessionId) return { ok: false, error: 'sessionId is required for a student academic context.' };
+  const [[session]] = await pool.query('SELECT id FROM academic_sessions WHERE id = ?', [sessionId]);
+  if (!session) return { ok: false, error: 'The selected Academic Session does not exist.' };
+  const sem = Number(semester);
+  if (!Number.isFinite(sem) || sem < 1 || sem > Number(program.total_semesters)) {
+    return {
+      ok: false,
+      error: `Semester ${sem} is invalid for ${program.name} (${program.duration} year(s) = ${program.total_semesters} semesters). Valid range: Sem 1 to Sem ${program.total_semesters}.`,
+    };
+  }
+  return { ok: true, program, semester: sem };
+};
 
 // Phase 8 — server-side student read scoping (IDOR hardening). A caller must not gain access
 // to a student merely by changing an id in the URL:
@@ -85,8 +112,8 @@ const looksLikePlaceholder = (student) => {
 
 // ---------- Student Master ----------
 // Section 14 — search/filter across Registration No, Name, Roll No, Program, Department,
-// Session, Class, Status, server-side paginated. Section 2/45 — School Admin / Department
-// Admin only ever see students within their own scope, regardless of what filters they pass.
+// Session, Semester, Class, Status, server-side paginated. Section 2/45 — School Admin /
+// Department Admin only ever see students within their own scope.
 router.get('/students', protect, async (req, res, next) => {
   try {
     const filters = applyReadScope(req.user, {
@@ -94,6 +121,7 @@ router.get('/students', protect, async (req, res, next) => {
       status: req.query.status,
       programId: req.query.programId,
       sessionId: req.query.sessionId,
+      semester: req.query.semester,
       classId: req.query.classId,
       departmentId: req.query.departmentId,
       limit: req.query.limit,
@@ -105,22 +133,60 @@ router.get('/students', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Phase 10 — create a student with its academic context. The Student belongs to a Program +
+// Session + Semester (exactly like a Course). The same academic context determines which
+// courses the student automatically appears in — no per-course student list duplication.
 router.post('/students', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
-    const { registrationNumber, rollNumber, name, email, status } = req.body;
+    const { registrationNumber, rollNumber, name, email, phone, status, programId, sessionId, semester } = req.body;
     if (!registrationNumber || !name) {
       return res.status(400).json({ success: false, message: 'registrationNumber and name are required.' });
     }
-    const existing = await findStudentByAnyIdentifier(registrationNumber);
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: `A student with identifier "${registrationNumber}" already exists (id ${existing.id}).`,
-        data: { student: existing },
-      });
+
+    // Validate the academic context if provided (programId, sessionId, semester)
+    let validatedContext = null;
+    if (programId && sessionId && semester !== undefined && semester !== null && semester !== '') {
+      const v = await validateStudentContext({ programId, sessionId, semester });
+      if (!v.ok) return res.status(400).json({ success: false, message: v.error });
+      validatedContext = v;
     }
-    const { student, created } = await createStudent({ registrationNumber, rollNumber, name, email, status });
-    if (created) {
+
+    // Context-aware duplicate check: same registration_number within the same Program+Session
+    // is a duplicate; same registration_number in a different historical context is allowed.
+    if (validatedContext) {
+      const existing = await findStudentInContext({ registrationNumber, programId, sessionId });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: `A student with enrollment number "${registrationNumber}" already exists in this Program + Academic Year.`,
+          data: { student: existing },
+        });
+      }
+    } else {
+      const existing = await findStudentByAnyIdentifier(registrationNumber);
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: `A student with identifier "${registrationNumber}" already exists (id ${existing.id}).`,
+          data: { student: existing },
+        });
+      }
+    }
+
+    const { student, created } = await createStudent({
+      registrationNumber, rollNumber, name, email, phone, status,
+      programId: validatedContext?.program?.id || programId || null,
+      sessionId: sessionId || null,
+      semester: validatedContext?.semester ?? semester ?? null,
+    });
+    if (created && validatedContext) {
+      // Enroll into every course matching this academic context
+      await enrollStudentInAllContextCourses({
+        studentId: student.id, programId: validatedContext.program.id,
+        sessionId, semester: validatedContext.semester,
+      });
+      await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'create', entityType: 'student', entityId: student.id, details: { registrationNumber, name, programId, sessionId, semester } });
+    } else if (created) {
       await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'create', entityType: 'student', entityId: student.id, details: { registrationNumber, name } });
     }
     res.status(created ? 201 : 200).json({
@@ -133,7 +199,16 @@ router.post('/students', protect, authorizeRoles('Admin', 'Examination Team', 'T
 
 router.put('/students/:id', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
-    const updated = await updateStudent(req.params.id, req.body);
+    const { registrationNumber, rollNumber, name, email, phone, status, programId, sessionId, semester } = req.body;
+    if (programId || sessionId || (semester !== undefined && semester !== null && semester !== '')) {
+      const v = await validateStudentContext({
+        programId: programId || undefined,
+        sessionId: sessionId || undefined,
+        semester: semester ?? undefined,
+      });
+      if (!v.ok) return res.status(400).json({ success: false, message: v.error });
+    }
+    const updated = await updateStudent(req.params.id, { registrationNumber, rollNumber, name, email, phone, status, programId, sessionId, semester });
     if (!updated) return res.status(404).json({ success: false, message: 'Student not found.' });
     await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update', entityType: 'student', entityId: req.params.id, details: req.body });
     res.json({ success: true, message: 'Student updated.', data: { student: await getStudentById(req.params.id) } });
@@ -149,6 +224,151 @@ router.get('/students/:id', protect, async (req, res, next) => {
     res.json({ success: true, data: student });
   } catch (err) { next(err); }
 });
+
+// Phase 10 — Course Student Upload & Context Sync
+// ────────────────────────────────────────────────────────────────────────────────
+// These endpoints follow the principle: Course → Program → Session → Semester →
+// Students. The Teacher never enters School, Department, Program, Session, or
+// Semester; the backend derives the full academic context from the assigned course.
+
+// GET /api/courses/:id/enrollment — list enrolled students (auto-syncs from context)
+// Already exists in courseRoutes.js — we add context-sync on the enrollment GET route.
+// The POST /api/courses/:id/enrollment/sync-context is here for explicit sync.
+
+// POST /api/courses/:id/enrollment/sync-context — enroll all students belonging to the
+// course's academic context (Program + Session + Semester) into this course.
+// Idempotent (INSERT IGNORE) — never removes existing enrollments.
+router.post('/courses/:id/enrollment/sync-context', protect, async (req, res, next) => {
+  try {
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
+    if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
+    if (!course.program_id || !course.academic_session_id || !course.semester) {
+      return res.status(400).json({ success: false, message: 'Course has no academic context (Program/Session/Semester). Link it to the hierarchy first.' });
+    }
+    const program = await getProgramByIdWithContext(course.program_id);
+    if (!program) return res.status(400).json({ success: false, message: 'The linked Program no longer exists.' });
+    const students = await getStudentsByContext({ programId: course.program_id, sessionId: course.academic_session_id, semester: course.semester });
+    const enrolled = await enrollStudentInAllContextCourses({ studentId: null, programId: course.program_id, sessionId: course.academic_session_id, semester: course.semester });
+    res.json({
+      success: true,
+      message: `${students.length} context student(s) synced into this course (${enrolled} new enrollments).`,
+      data: { totalStudents: students.length, newEnrollments: enrolled, students },
+    });
+  } catch (err) { next(err); }
+});
+
+// GET /api/courses/:id/students — fetch students belonging to this course's academic
+// context (Program + Session + Semester). Unlike GET /api/courses/:id/enrollment, this
+// resolves dynamically from the context rather than the course_enrollments table, so
+// students added/uploaded once for the context appear in every course automatically.
+// Falls back to the enrollment table for legacy courses without a hierarchy link.
+router.get('/courses/:id/students', protect, async (req, res, next) => {
+  try {
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
+    if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
+
+    if (course.program_id && course.academic_session_id && course.semester) {
+      // Context-based resolution: students whose academic context matches the course.
+      // First ensure they are enrolled (additive, idempotent) so the existing marks/
+      // enrollment flows also find them.
+      await enrollStudentInAllContextCourses({
+        studentId: null, programId: course.program_id,
+        sessionId: course.academic_session_id, semester: course.semester,
+      });
+      const students = await getStudentsByContext({
+        programId: course.program_id, sessionId: course.academic_session_id,
+        semester: course.semester,
+      });
+      return res.json({ success: true, data: students, context: true });
+    }
+    // Fallback to enrollment table for legacy courses
+    const { getEnrolledStudentsForCourse } = require('../models/academicModel');
+    const students = await getEnrolledStudentsForCourse(course.id);
+    res.json({ success: true, data: students, context: false });
+  } catch (err) { next(err); }
+});
+
+// POST /api/courses/:id/students/upload — bulk upload students into the course's
+// academic context. The Teacher provides only student-specific data:
+//   { students: [{ enrollmentNo, rollNo, name, email, phone }] }
+// The backend derives School, Department, Program, Session, Semester from the course.
+// Students are created/updated in the Student Master and enrolled into ALL courses
+// sharing the same context — no per-course duplicate upload needed.
+router.post('/courses/:id/students/upload', protect, async (req, res, next) => {
+  try {
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
+    if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
+    if (!course.program_id || !course.academic_session_id || !course.semester) {
+      return res.status(400).json({ success: false, message: 'Course has no academic context. Link it to the hierarchy first.' });
+    }
+
+    const v = await validateStudentContext({
+      programId: course.program_id, sessionId: course.academic_session_id, semester: course.semester,
+    });
+    if (!v.ok) return res.status(400).json({ success: false, message: v.error });
+
+    const { students } = req.body;
+    if (!Array.isArray(students) || students.length === 0) {
+      return res.status(400).json({ success: false, message: 'Provide a non-empty students array. Each row: { enrollmentNo, rollNo, name, email?, phone? }.' });
+    }
+
+    let created = 0; let updated = 0; let enrolled = 0; const errors = [];
+    for (let i = 0; i < students.length; i += 1) {
+      const s = students[i];
+      const rowNo = s.rowNumber || i + 1;
+      const reg = String(s.enrollmentNo || s.registrationNumber || '').trim();
+      if (!reg || !s.name) {
+        errors.push({ row: rowNo, enrollmentNo: reg, name: s.name || '', problem: 'Missing enrollment number or student name.' });
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      try {
+        // Context-aware lookup: same enrollment number in this program+session = update
+        const existing = await findStudentInContext({ registrationNumber: reg, programId: course.program_id, sessionId: course.academic_session_id });
+        let studentId;
+        if (existing) {
+          await updateStudent(existing.id, {
+            rollNumber: s.rollNo || s.rollNumber || null,
+            name: s.name, email: s.email || null, phone: s.phone || null,
+            status: 'Active',
+          });
+          studentId = existing.id;
+          updated += 1;
+        } else {
+          const { student, created: isNew } = await createStudent({
+            registrationNumber: reg, rollNumber: s.rollNo || s.rollNumber || null,
+            name: s.name, email: s.email || null, phone: s.phone || null,
+            status: 'Active', programId: course.program_id, sessionId: course.academic_session_id, semester: course.semester,
+          });
+          studentId = student.id;
+          if (isNew) created += 1;
+          else updated += 1;
+        }
+        // Enroll this student into ALL courses of the context
+        enrolled += await enrollStudentInAllContextCourses({
+          studentId, programId: course.program_id,
+          sessionId: course.academic_session_id, semester: course.semester,
+        });
+      } catch (err) {
+        errors.push({ row: rowNo, enrollmentNo: reg, name: s.name, problem: err.message });
+      }
+    }
+
+    // Idempotent bulk sync: ensure every context student is enrolled in every context course
+    enrolled += await enrollStudentInAllContextCourses({
+      studentId: null, programId: course.program_id,
+      sessionId: course.academic_session_id, semester: course.semester,
+    });
+
+    res.json({
+      success: true,
+      message: `${created + updated} student(s) processed (${created} created, ${updated} updated, ${enrolled} enrollments).`,
+      data: { created, updated, enrolled, errors, total: created + updated },
+    });
+  } catch (err) { next(err); }
+});
+
+// ────────────────────────────────────────────────────────────────────────────────
 
 // Map a student into an academic class (Phase 3J workflow).
 // Body: { classId, programId?, sessionId?, semester?, section? }

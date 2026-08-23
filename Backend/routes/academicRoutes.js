@@ -9,10 +9,13 @@ const {
   getAllSchools, createSchool, updateSchool,
   getDepartmentsBySchool, createDepartment, updateDepartment,
   getBranchesByDepartment, createBranch,
-  getProgramsByDepartment, createProgram, updateProgram,
+  getProgramsByDepartment, getProgramByIdWithContext, createProgram, updateProgram,
   getAllSessions, createSession, updateSession,
   getClasses, getClassById, createClass, updateClass,
 } = require('../models/academicModel');
+const {
+  getProgramOutcomes, createProgramOutcome, updateProgramOutcome, deleteProgramOutcome, bulkUpsertProgramOutcomes,
+} = require('../models/programOutcomeModel');
 
 // ---------- Schools ----------
 // Always unscoped — every authenticated user can see the list of Schools (needed for basic
@@ -163,6 +166,76 @@ router.put('/programs/:id', protect, authorizeAcademicWrite('program'), async (r
     if (!updated) return res.status(404).json({ success: false, message: 'Program not found.' });
     await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update', entityType: 'program', entityId: req.params.id, details: req.body });
     res.json({ success: true, message: 'Program updated.' });
+  } catch (err) { next(err); }
+});
+
+// ---------- Program Outcomes (PEO / PO / PSO) ----------
+// Phase 12 — Program-level OBE outcome ownership. The Program owns its PEOs/POs/PSOs
+// (definitions, descriptions, numbering, active status). Reads are available to all
+// authenticated roles (needed by the articulation matrix and attainment views); writes are
+// restricted to the same academic-write roles that manage the program itself — never a
+// teacher-only feature.
+router.get('/programs/:id/outcomes', protect, async (req, res, next) => {
+  try {
+    const programId = req.params.id;
+    const program = await getProgramByIdWithContext(programId);
+    if (!program) return res.status(404).json({ success: false, message: 'Program not found.' });
+    const rows = await getProgramOutcomes(programId, req.query.type);
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
+// Bulk upsert by type — body: { type: 'PEO'|'PO'|'PSO', outcomes: [{ code, title, description, displayOrder, isActive }] }
+router.put('/programs/:id/outcomes', protect, authorizeAcademicWrite('program'), async (req, res, next) => {
+  try {
+    const { type, outcomes } = req.body;
+    if (!['PEO', 'PO', 'PSO'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'type must be PEO, PO or PSO.' });
+    }
+    if (!Array.isArray(outcomes)) {
+      return res.status(400).json({ success: false, message: 'outcomes must be an array.' });
+    }
+    const written = await bulkUpsertProgramOutcomes(req.params.id, type, outcomes);
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update', entityType: 'program_outcomes', entityId: req.params.id, details: { type, count: written } });
+    res.json({ success: true, message: `${written} ${type} definition(s) saved.`, data: { written } });
+  } catch (err) { next(err); }
+});
+
+// Single outcome create — body: { type, code, title?, description?, displayOrder?, isActive? }
+router.post('/programs/:id/outcomes', protect, authorizeAcademicWrite('program'), async (req, res, next) => {
+  try {
+    const { type, code, title, description, displayOrder, isActive } = req.body;
+    if (!['PEO', 'PO', 'PSO'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'type must be PEO, PO or PSO.' });
+    }
+    if (!code) return res.status(400).json({ success: false, message: 'code is required (e.g. PO4).' });
+    const row = await createProgramOutcome({ programId: req.params.id, type, code, title, description, displayOrder, isActive });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'create', entityType: 'program_outcome', entityId: row.id, details: { type, code } });
+    res.status(201).json({ success: true, message: `${code} created.`, data: row });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, message: `An outcome with code "${req.body.code}" already exists for this program.` });
+    }
+    next(err);
+  }
+});
+
+// Update a single outcome — body: any of { code, title, description, displayOrder, isActive }
+router.put('/programs/:id/outcomes/:outcomeId', protect, authorizeAcademicWrite('program'), async (req, res, next) => {
+  try {
+    const row = await updateProgramOutcome(req.params.outcomeId, req.body);
+    if (!row) return res.status(404).json({ success: false, message: 'Outcome not found.' });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'update', entityType: 'program_outcome', entityId: row.id, details: req.body });
+    res.json({ success: true, message: `${row.code} updated.`, data: row });
+  } catch (err) { next(err); }
+});
+
+router.delete('/programs/:id/outcomes/:outcomeId', protect, authorizeAcademicWrite('program'), async (req, res, next) => {
+  try {
+    const removed = await deleteProgramOutcome(req.params.outcomeId);
+    if (!removed) return res.status(404).json({ success: false, message: 'Outcome not found.' });
+    await logAction({ actorUserId: req.user.id, actorName: req.user.email, action: 'delete', entityType: 'program_outcome', entityId: req.params.outcomeId, details: {} });
+    res.json({ success: true, message: 'Outcome removed.' });
   } catch (err) { next(err); }
 });
 

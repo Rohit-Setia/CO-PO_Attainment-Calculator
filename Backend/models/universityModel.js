@@ -366,6 +366,33 @@ const addPhase7DuplicatePreventionConstraints = async () => {
   } catch { /* same as above */ }
 };
 
+// PHASE 10 — Student Academic Hierarchy uniqueness. The old global UNIQUE on
+// `registration_number` wrongly forbids the same enrollment number from existing in unrelated
+// historical academic contexts (e.g. the same pattern in BBA 2026-27 and BBA 2027-28 are
+// distinct students). Uniqueness is now scoped to the academic context:
+//   (registration_number, academic_program_id, academic_session_id)
+// MySQL UNIQUE allows multiple NULLs, so legacy/unmapped students (NULL context) are
+// unaffected. Idempotent; only runs when the old index exists.
+const addStudentContextUniqueness = async () => {
+  try {
+    const [idx] = await pool.query(
+      `SELECT INDEX_NAME FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'students' AND INDEX_NAME = 'reg_no'`,
+    );
+    if (idx.length > 0) {
+      await pool.query('ALTER TABLE students DROP INDEX reg_no');
+    }
+  } catch (err) {
+    console.warn('Could not drop legacy students.reg_no unique index:', err.message);
+    return;
+  }
+  try {
+    await ensureUniqueIndex('students', 'uniq_student_context', 'registration_number, academic_program_id, academic_session_id');
+  } catch (err) {
+    console.warn('Could not add students context uniqueness:', err.message);
+  }
+};
+
 module.exports = {
   createUniversityTables,
   migrateLegacyUniversityData,
@@ -374,5 +401,6 @@ module.exports = {
   normalizeLegacyStudentSchemaForMaster,
   addProgramDegreeColumn,
   addPhase7DuplicatePreventionConstraints,
+  addStudentContextUniqueness,
   ensureColumn,
 };

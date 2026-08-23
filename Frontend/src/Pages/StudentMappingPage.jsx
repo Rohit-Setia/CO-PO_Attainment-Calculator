@@ -27,7 +27,7 @@ const StudentMappingPage = () => {
       ]);
       setStudents(resStudents.data.data);
       setClasses(resClasses.data.data);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
@@ -81,7 +81,7 @@ const StudentMappingPage = () => {
       toast.success(`Successfully mapped ${selectedStudents.size} students!`);
       setSelectedStudents(new Set());
       fetchData();
-    } catch (err) {
+    } catch {
       toast.error('Error during mapping.');
     } finally {
       setIsMapping(false);

@@ -8,6 +8,7 @@ const courseRouter = require('./routes/courseRoutes');
 const dashboardRouter = require('./routes/dashboardRoutes');
 const academicRouter = require('./routes/academicRoutes');
 const studentRouter = require('./routes/studentRoutes');
+const obeRouter = require('./routes/obeRoutes');
 const errorHandler = require('./middlewares/errorMiddleware');
 
 const { createUsersTable, addRoleScopingColumns } = require('./models/userModel');
@@ -16,13 +17,17 @@ const { createCoursesTable, createUserCourseAssignmentsTable, addCourseStatusCol
 const { createMappingTables, createCoPoValueTable, migrateLegacyMappingToCoPoValues } = require('./models/mappingModel');
 const {
   createMarksTable, createStudentCoMarksTable, createStudentQuestionMarksTable, migrateLegacyStudentMarks,
+  addStudentIdToMarks,
 } = require('./models/marksModel');
 const { createCourseOutcomeTables, migrateLegacyCoursesToOutcomes } = require('./models/courseOutcomeModel');
 const { createQuestionConfigTable, migrateLegacyQuestionConfigs } = require('./models/questionConfigModel');
 const {
   createUniversityTables, migrateLegacyUniversityData, normalizeLegacyStudentsTable, normalizeProgramsTable,
   normalizeLegacyStudentSchemaForMaster, addProgramDegreeColumn, addPhase7DuplicatePreventionConstraints,
+  addStudentContextUniqueness,
 } = require('./models/universityModel');
+const { createProgramOutcomesTable, seedDefaultProgramOutcomes } = require('./models/programOutcomeModel');
+const { ensureOBESchema } = require('./models/obeModel');
 const { createStudentTables, migrateLegacyStudentData } = require('./models/studentModel');
 const { createAdminAuditTable } = require('./models/adminAuditModel');
 
@@ -90,6 +95,7 @@ app.use('/api', courseRouter);
 app.use('/api', dashboardRouter);
 app.use('/api', academicRouter);
 app.use('/api', studentRouter);
+app.use('/api', obeRouter);
 
 app.use(errorHandler);
 
@@ -113,6 +119,9 @@ createUsersTable()
   .then(() => createUniversityTables())
   .then(() => addRoleScopingColumns())
   .then(() => addPhase7DuplicatePreventionConstraints())
+  .then(() => addStudentContextUniqueness())
+  .then(() => createProgramOutcomesTable())
+  .then(() => seedDefaultProgramOutcomes())
   .then(() => createStudentTables())
   .then(() => createCoursesTable())
   .then(() => addCourseStatusColumn())
@@ -124,6 +133,7 @@ createUsersTable()
   .then(() => createUserCourseAssignmentsTable())
   .then(() => createMappingTables())
   .then(() => createMarksTable())
+  .then(() => addStudentIdToMarks())
   .then(() => migrateLegacyStudentData())
   .then(() => createCourseOutcomeTables())
   .then(() => migrateLegacyCoursesToOutcomes())
@@ -135,6 +145,7 @@ createUsersTable()
   .then(() => createStudentQuestionMarksTable())
   .then(() => migrateLegacyStudentMarks())
   .then(() => createAdminAuditTable())
+  .then(() => ensureOBESchema())
   .then(() => {
     app.listen(PORT, () => console.log('Server running on', PORT));
   })

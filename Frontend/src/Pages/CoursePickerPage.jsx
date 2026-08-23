@@ -85,7 +85,9 @@ export default function CoursePickerPage({ title, description, icon: Icon, targe
             <div className="min-w-0">
               <p className="truncate font-bold text-foreground">{c.course_code}</p>
               <p className="truncate text-sm text-muted-foreground">{c.subject_name}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Sem {c.semester} &bull; {c.academic_year}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {c.programName ? `${c.programName} · ` : ''}Sem {c.semester} &bull; {c.sessionName || c.academic_year}
+              </p>
             </div>
             <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-primary">
               {actionLabel} <ArrowRight className="h-3.5 w-3.5" />

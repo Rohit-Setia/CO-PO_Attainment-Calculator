@@ -52,6 +52,7 @@ function EntityPanel({
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [fetchList]);
 
   const handleCreate = async (values) => {

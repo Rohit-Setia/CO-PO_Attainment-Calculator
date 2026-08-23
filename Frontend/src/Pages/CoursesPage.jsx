@@ -2,7 +2,10 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { fetchCourses, createCourse, deleteCourse, importCourseJson } from '../Api/AttainmentApi';
+import {
+  fetchCourses, createCourse, deleteCourse, importCourseJson,
+  fetchSchools, fetchDepartments, fetchPrograms, fetchSessions,
+} from '../Api/AttainmentApi';
 import { useAuth } from '../context/AuthContext';
 import { useAcademicFilter, filterCoursesByAcademicSelection } from '../context/AcademicFilterContext';
 import { usePageHeader } from '../context/PageHeaderContext';
@@ -19,15 +22,6 @@ import ErrorState from '../components/ui/ErrorState';
 import { Skeleton } from '../components/ui/skeleton';
 import PageTransition from '../components/ui/PageTransition';
 
-const academicStructure = {
-  Engineering: {
-    departments: ["CSE", "Mechanical"],
-  },
-  Management: {
-    departments: ["BBA", "MBA"],
-  },
-};
-
 const CoursesPage = () => {
   const navigate = useNavigate();
   const { hasRole } = useAuth();
@@ -40,6 +34,14 @@ const CoursesPage = () => {
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [deleting, setDeleting]     = useState(false);
 
+  // Phase 9 — the academic hierarchy is loaded from the Admin-configured backend (never a
+  // hardcoded list): Schools → Departments → Programs → Academic Sessions. Cascading
+  // selections narrow the dropdowns; the backend enforces the program's valid semester range.
+  const [schools, setSchools] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [programs, setPrograms] = useState([]);
+  const [sessions, setSessions] = useState([]);
+
   const importInputRef              = useRef(null);
   const [importData, setImportData] = useState(null);
   const [importing, setImporting]   = useState(false);
@@ -47,12 +49,13 @@ const CoursesPage = () => {
   const [importSuccess, setImportSuccess] = useState('');
 
   const [formData, setFormData] = useState({
-    school: '',
-    department: '',
+    schoolId: '',
+    departmentId: '',
+    programId: '',
+    sessionId: '',
     subjectName: '',
     courseCode: '',
-    semester: '1',
-    academicYear: new Date().getFullYear() + '-' + (new Date().getFullYear() + 1),
+    semester: '',
     numCos: '5'
   });
 
@@ -62,9 +65,9 @@ const CoursesPage = () => {
       const response = await fetchCourses();
       setCourses(response.data.data);
       const semesters = [...new Set(response.data.data.map((c) => c.semester))].sort((a, b) => a - b);
-      const sessions = [...new Set(response.data.data.map((c) => c.academic_year))].sort();
+      const sessions2 = [...new Set(response.data.data.map((c) => c.academic_year))].sort();
       setAvailableSemesters(semesters);
-      setAvailableSessions(sessions);
+      setAvailableSessions(sessions2);
       setError('');
     } catch (apiError) {
       setError(apiError.response?.data?.message || 'Could not load courses.');
@@ -73,8 +76,90 @@ const CoursesPage = () => {
     }
   };
 
+  const loadHierarchy = async () => {
+    try {
+      const [schoolsRes, sessionsRes] = await Promise.all([fetchSchools(), fetchSessions()]);
+      setSchools(schoolsRes.data.data || []);
+      setSessions(sessionsRes.data.data || []);
+    } catch { /* hierarchy is best-effort for the create modal; course list still works */ }
+  };
+
+  // When a School is picked, load its Departments (server-side scoped).
+  const handleSchoolChange = async (schoolId) => {
+    setFormData((prev) => ({ ...prev, schoolId, departmentId: '', programId: '', semester: '' }));
+    setPrograms([]);
+    if (schoolId) {
+      try {
+        const res = await fetchDepartments(schoolId);
+        setDepartments(res.data.data || []);
+      } catch { setDepartments([]); }
+    } else {
+      setDepartments([]);
+    }
+  };
+
+  // When a Department is picked, load its Programs (each carries duration → total semesters).
+  const handleDepartmentChange = async (departmentId) => {
+    setFormData((prev) => ({ ...prev, departmentId, programId: '', semester: '' }));
+    if (departmentId) {
+      try {
+        const res = await fetchPrograms(departmentId);
+        setPrograms(res.data.data || []);
+      } catch { setPrograms([]); }
+    } else {
+      setPrograms([]);
+    }
+  };
+
+  // When a Program is picked, reset the semester — the dropdown is rebuilt from the
+  // program's duration (total_semesters = duration × 2), never a hardcoded 8.
+  const handleProgramChange = (programId) => {
+    setFormData((prev) => ({ ...prev, programId, semester: '' }));
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'schoolId') { handleSchoolChange(value); return; }
+    if (name === 'departmentId') { handleDepartmentChange(value); return; }
+    if (name === 'programId') { handleProgramChange(value); return; }
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleCreateCourse = async (e) => {
+    e.preventDefault();
+    if (!formData.programId || !formData.sessionId || !formData.semester || !formData.subjectName || !formData.courseCode) {
+      toast.error('Please fill all required fields (School → Department → Program → Academic Year → Semester).');
+      return;
+    }
+    setCreating(true);
+    try {
+      await createCourse({
+        programId: Number(formData.programId),
+        sessionId: Number(formData.sessionId),
+        subjectName: formData.subjectName,
+        courseCode: formData.courseCode,
+        semester: parseInt(formData.semester),
+        numCos: parseInt(formData.numCos)
+      });
+      setShowModal(false);
+      setFormData({
+        schoolId: '', departmentId: '', programId: '', sessionId: '',
+        subjectName: '', courseCode: '', semester: '', numCos: '5'
+      });
+      setDepartments([]);
+      setPrograms([]);
+      await loadCourses();
+      toast.success('Course created successfully.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create course.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   useEffect(() => {
     loadCourses();
+    loadHierarchy();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -95,55 +180,10 @@ const CoursesPage = () => {
     return { total, fullyConfigured, inProgress, totalCos };
   }, [visibleCourses]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => {
-      const updated = { ...prev, [name]: value };
-      if (name === 'school') {
-        updated.department = '';
-      }
-      return updated;
-    });
-  };
-
-  const handleCreateCourse = async (e) => {
-    e.preventDefault();
-    if (!formData.school || !formData.department || !formData.subjectName || !formData.courseCode || !formData.academicYear) {
-      toast.error('Please fill all required fields.');
-      return;
-    }
-    setCreating(true);
-    try {
-      await createCourse({
-        ...formData,
-        semester: parseInt(formData.semester),
-        numCos: parseInt(formData.numCos)
-      });
-      setShowModal(false);
-      setFormData({
-        school: '',
-        department: '',
-        subjectName: '',
-        courseCode: '',
-        semester: '1',
-        academicYear: new Date().getFullYear() + '-' + (new Date().getFullYear() + 1),
-        numCos: '5'
-      });
-      await loadCourses();
-      toast.success('Course created successfully.');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to create course.');
-    } finally {
-      setCreating(false);
-    }
-  };
-
   const handleDeleteCourse = (id, e) => {
     e.stopPropagation();
     setPendingDeleteId(id);
-  };
-
-  const confirmDeleteCourse = async () => {
+  };  const confirmDeleteCourse = async () => {
     if (!pendingDeleteId) return;
     setDeleting(true);
     try {
@@ -362,7 +402,10 @@ const CoursesPage = () => {
         onClose={() => setShowModal(false)}
         formData={formData}
         creating={creating}
-        academicStructure={academicStructure}
+        schools={schools}
+        departments={departments}
+        programs={programs}
+        sessions={sessions}
         handleChange={handleChange}
         handleSubmit={handleCreateCourse}
       />

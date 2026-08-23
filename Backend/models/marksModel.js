@@ -2,10 +2,15 @@ const pool = require('../config/db');
 const { getActiveOutcomes } = require('./courseOutcomeModel');
 
 const createMarksTable = async () => {
-  // 1. Drop conflicting legacy table if it lacks question_marks
+  // 1. Drop conflicting legacy table if it has the Phase-2-era schema. The discriminator is
+  // `assessment_id` ONLY — the current normalized table carries a `student_id` column
+  // (Phase 10/11, marks reference the Student Master) but NEVER `assessment_id`, so checking
+  // both would wrongly flag the live table as legacy and attempt a destructive drop on every
+  // startup. The drop is also FK-guarded (student_co_marks references student_marks), so a
+  // mis-triggered drop fails safely — but it must not be attempted at all.
   try {
     const [cols] = await pool.query('SHOW COLUMNS FROM student_marks');
-    const hasLegacyColumns = cols.some(col => col.Field === 'student_id' || col.Field === 'assessment_id');
+    const hasLegacyColumns = cols.some(col => col.Field === 'assessment_id');
     const hasQuestionMarksCol = cols.some(col => col.Field === 'question_marks');
     if (hasLegacyColumns || !hasQuestionMarksCol) {
       console.log('Dropping legacy/outdated student_marks table...');
@@ -31,10 +36,51 @@ const createMarksTable = async () => {
       co6 DECIMAL(5,2) DEFAULT 0.00,
       total_marks DECIMAL(6,2) DEFAULT 0.00,
       question_marks TEXT,
+      student_id INT DEFAULT NULL,
       FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
       UNIQUE KEY unique_student_exam (course_id, reg_no, exam_type)
     ) ENGINE=InnoDB;
   `);
+};
+
+// Phase 10 — additive migration: a student_id FK column on the existing student_marks table
+// so marks reference the actual Student Master record (stable ID, not just reg_no text).
+// Backfill existing rows by matching reg_no to students in the course's academic context.
+// Idempotent — only runs if the column is missing.
+const addStudentIdToMarks = async () => {
+  try {
+    const [cols] = await pool.query("SHOW COLUMNS FROM student_marks LIKE 'student_id'");
+    if (cols.length === 0) {
+      await pool.query('ALTER TABLE student_marks ADD COLUMN student_id INT DEFAULT NULL AFTER question_marks');
+    }
+    // Backfill pass 1: match reg_no ↔ students.registration_number within the same course's
+    // program/session context (context-linked students — unambiguous).
+    const [ctxResult] = await pool.query(
+      `UPDATE student_marks sm
+       JOIN courses c ON c.id = sm.course_id
+       JOIN students st ON st.registration_number = sm.reg_no
+        AND st.academic_program_id = c.program_id
+        AND st.academic_session_id = c.academic_session_id
+       SET sm.student_id = st.id
+       WHERE sm.student_id IS NULL`,
+    );
+    // Backfill pass 2: remaining rows matched by reg_no alone, but ONLY to legacy student
+    // records that are not context-linked (NULL program/session). With the old global UNIQUE
+    // on registration_number such a match is unambiguous; context-linked students were
+    // already handled in pass 1.
+    const [legacyResult] = await pool.query(
+      `UPDATE student_marks sm
+       JOIN students st ON st.registration_number = sm.reg_no
+        AND st.academic_program_id IS NULL
+        AND st.academic_session_id IS NULL
+       SET sm.student_id = st.id
+       WHERE sm.student_id IS NULL`,
+    );
+    const total = Number(ctxResult.affectedRows) + Number(legacyResult.affectedRows);
+    if (total > 0) console.log(`Backfilled ${total} student_marks rows with student_id`);
+  } catch (err) {
+    console.warn('Could not add student_id column to student_marks:', err.message);
+  }
 };
 
 const getMarksByCourse = async (courseId, examType) => {
@@ -51,11 +97,11 @@ const getMarksByCourse = async (courseId, examType) => {
   return rows;
 };
 
-const saveStudentMark = async ({ courseId, name, regNo, examType, co1, co2, co3, co4, co5, co6, totalMarks, questionMarks }) => {
+const saveStudentMark = async ({ courseId, name, regNo, examType, co1, co2, co3, co4, co5, co6, totalMarks, questionMarks, studentId }) => {
   const query = `
     INSERT INTO student_marks 
-      (course_id, name, reg_no, exam_type, co1, co2, co3, co4, co5, co6, total_marks, question_marks)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (course_id, name, reg_no, exam_type, co1, co2, co3, co4, co5, co6, total_marks, question_marks, student_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       name = VALUES(name),
       co1 = VALUES(co1),
@@ -65,7 +111,8 @@ const saveStudentMark = async ({ courseId, name, regNo, examType, co1, co2, co3,
       co5 = VALUES(co5),
       co6 = VALUES(co6),
       total_marks = VALUES(total_marks),
-      question_marks = VALUES(question_marks)
+      question_marks = VALUES(question_marks),
+      student_id = VALUES(student_id)
   `;
 
   const [result] = await pool.query(query, [
@@ -81,6 +128,7 @@ const saveStudentMark = async ({ courseId, name, regNo, examType, co1, co2, co3,
     co6 || 0,
     totalMarks || 0,
     questionMarks || null,
+    studentId || null,
   ]);
 
   // Reliable because every current caller deletes-then-reinserts (marks save) or inserts into a
@@ -257,6 +305,7 @@ const saveStudentQuestionMarks = async (studentMarkId, questionMarksArray) => {
 
 module.exports = {
   createMarksTable,
+  addStudentIdToMarks,
   getMarksByCourse,
   saveStudentMark,
   deleteMarksByCourse,

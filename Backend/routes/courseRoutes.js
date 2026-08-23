@@ -43,6 +43,8 @@ const { calculateCourseAttainment } = require('../utils/attainmentCalculator');
 const pool = require('../config/db');
 const { findUserByEmail } = require('../models/userModel');
 const { logAction } = require('../models/adminAuditModel');
+const { getCourseHierarchyContext, getProgramByIdWithContext } = require('../models/academicModel');
+const { getProgramOutcomesForCourse } = require('../models/programOutcomeModel');
 
 const DEFAULT_CONFIG = {
   threshold_percent_internal: 40.0,
@@ -130,34 +132,100 @@ router.get('/courses', protect, async (req, res, next) => {
       };
     });
 
-    res.json({ success: true, data: enriched });
+    // Phase 9 — attach the full academic hierarchy context (School / Department / Program /
+    // Session + program code/degree/duration/total semesters) to every course, so the Teacher
+    // interface can show complete academic information without extra round-trips. All values
+    // come from the SAME hierarchy tables the Admin configures — never duplicated per course.
+    const hierarchyMap = await getCourseHierarchyContext(courseIds);
+    const withHierarchy = enriched.map((course) => {
+      const h = hierarchyMap.get(course.id) || {};
+      return {
+        ...course,
+        hierarchyLinked: Boolean(course.program_id),
+        schoolName: h.school_name || null,
+        schoolId: h.school_id || null,
+        departmentName: h.department_name || null,
+        departmentId: h.department_id || null,
+        programName: h.program_name || null,
+        programCode: h.program_code || null,
+        programDegree: h.program_degree || null,
+        programDuration: h.program_duration ?? null,
+        programTotalSemesters: h.program_total_semesters ?? null,
+        sessionId: h.session_id || null,
+        sessionName: h.session_name || null,
+      };
+    });
+
+    res.json({ success: true, data: withHierarchy });
   } catch (err) {
     next(err);
   }
 });
 
 // Only Admins, Examination Team, and Teachers can create courses
+// Phase 9 — courses are created INSIDE the academic hierarchy (programId + sessionId), not as
+// standalone free-text entries. The Admin's configured School/Department/Program/Session is the
+// single source of truth: the free-text school/department fields are derived from the linked
+// program so they can never drift from the hierarchy. Semester is validated against the
+// program's computed total (duration × 2) — a 3-year BBA can never get Sem 7 or Sem 8.
 router.post('/courses', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
-    const { school, department, subjectName, courseCode, semester, academicYear, numCos } = req.body;
-    if (!school || !department || !subjectName || !courseCode || !semester || !academicYear) {
+    const { programId, sessionId, subjectName, courseCode, semester, academicYear, numCos } = req.body;
+    if (!programId || !subjectName || !courseCode || !semester) {
       return res.status(400).json({
         success: false,
-        message: 'school, department, subjectName, courseCode, semester and academicYear are required.',
+        message: 'programId, subjectName, courseCode and semester are required.',
       });
     }
-    if (!Number.isFinite(Number(semester)) || Number(semester) < 1) {
-      return res.status(400).json({ success: false, message: 'semester must be a positive number.' });
+
+    // Academic Year comes from the selected Academic Session (Admin-configured) — the free-text
+    // course.academic_year is derived from the session name so it can never drift from it.
+    let sessionName = null;
+    if (sessionId) {
+      const [sessRows] = await pool.query('SELECT name FROM academic_sessions WHERE id = ?', [sessionId]);
+      sessionName = sessRows[0]?.name || null;
     }
+    const finalAcademicYear = academicYear || sessionName || '';
+
+    const program = await getProgramByIdWithContext(programId);
+    if (!program) {
+      return res.status(400).json({ success: false, message: 'The selected Program does not exist.' });
+    }
+    const totalSemesters = program.total_semesters;
+    const sem = Number(semester);
+    if (!Number.isFinite(sem) || sem < 1 || sem > totalSemesters) {
+      return res.status(400).json({
+        success: false,
+        message: `Semester ${sem} is invalid for ${program.name} (${program.duration} year(s) = ${totalSemesters} semesters). Valid range: Sem 1 to Sem ${totalSemesters}.`,
+      });
+    }
+
+    // Duplicate course code within the same academic context (program + session) is rejected —
+    // the same subject cannot be created twice for the same program year.
+    const [dup] = await pool.query(
+      'SELECT id FROM courses WHERE course_code = ? AND program_id = ? AND academic_session_id = ? LIMIT 1',
+      [courseCode, programId, sessionId || null],
+    );
+    if (dup.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `A course with code "${courseCode}" already exists for this Program and Academic Year.`,
+      });
+    }
+
+    // Free-text fields are derived from the linked program — Admin configures once, the course
+    // always mirrors the hierarchy (never a separate Teacher-entered copy).
     const courseId = await createCourse({
       teacherId: req.user.id,
-      school,
-      department,
+      school: program.school_name || '',
+      department: program.department_name || '',
       subjectName,
       courseCode,
-      semester,
-      academicYear,
+      semester: sem,
+      academicYear: finalAcademicYear,
       numCos: numCos || 5,
+      programId,
+      sessionId: sessionId || null,
     });
 
     await saveConfig(courseId, DEFAULT_CONFIG);
@@ -287,8 +355,8 @@ router.put('/courses/:id/outcomes/:coId', protect, checkCoursePermission(['Teach
     if (!outcome || outcome.course_id !== course.id) {
       return res.status(404).json({ success: false, message: 'Course Outcome not found on this course.' });
     }
-    const { description, max_internal, max_external } = req.body;
-    await updateCourseOutcome(outcome.id, { description, max_internal, max_external });
+    const { description, max_internal, max_external, target_percent } = req.body;
+    await updateCourseOutcome(outcome.id, { description, max_internal, max_external, target_percent });
     res.json({ success: true, message: `CO${outcome.co_number} updated.` });
   } catch (err) {
     next(err);
@@ -356,8 +424,15 @@ router.get('/courses/:id/config', protect, checkCoursePermission(['Teacher', 'Vi
     const hctx = hierarchyMap.get(course.id) || {};
     const hierarchy = {
       schoolName: hctx.school_name || null,
+      schoolId: hctx.school_id || null,
       departmentName: hctx.department_name || null,
+      departmentId: hctx.department_id || null,
       programName: hctx.program_name || null,
+      programCode: hctx.program_code || null,
+      programDegree: hctx.program_degree || null,
+      programDuration: hctx.program_duration ?? null,
+      programTotalSemesters: hctx.program_total_semesters ?? null,
+      sessionId: hctx.session_id || null,
       sessionName: hctx.session_name || null,
       linked: Boolean(course.program_id),
     };
@@ -478,7 +553,8 @@ router.get('/courses/:id/mapping', protect, checkCoursePermission(['Teacher', 'V
 
     const values = await getCoPoValuesForCourse(course.id);
     const averages = await getCoPoAveragesForCourse(course.id);
-    res.json({ success: true, data: { values, averages } });
+    const programOutcomes = await getProgramOutcomesForCourse(course.id);
+    res.json({ success: true, data: { values, averages, programOutcomes } });
   } catch (err) {
     next(err);
   }
@@ -514,34 +590,83 @@ router.post('/courses/:id/mapping', protect, checkCoursePermission(['Teacher']),
 });
 
 // 4. Student Marks — dynamic CO / question columns, sourced entirely from persisted config
+// Phase 11 — Marks Entry roster: returns ALL students of the course's academic context
+// (auto-synced from Student Master enrollment), merged with any saved marks. The teacher no
+// longer needs to import Excel just to populate the student list — marks load automatically
+// and existing marks prefill. Legacy rows (marks for students no longer enrolled) are kept.
 router.get('/courses/:id/marks', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
     const course = await loadCourseOr404(req, res);
     if (!course) return;
 
+    // Auto-sync students belonging to the course's academic context into enrollment
+    // (additive, idempotent — Phase 10). Legacy courses without a hierarchy link skip this.
+    if (course.program_id && course.academic_session_id && course.semester) {
+      await enrollStudentInAllContextCourses({
+        studentId: null, programId: course.program_id,
+        sessionId: course.academic_session_id, semester: course.semester,
+      });
+    }
+    const enrolled = await getEnrolledStudentsForCourse(course.id);
+
     const buildForExamType = async (examType) => {
       const [studentRows] = await pool.query(
-        'SELECT id, name, reg_no, total_marks FROM student_marks WHERE course_id = ? AND exam_type = ? ORDER BY reg_no ASC',
+        'SELECT id, name, reg_no, student_id, total_marks FROM student_marks WHERE course_id = ? AND exam_type = ?',
         [course.id, examType],
       );
       const coMarksByStudent = await getCoMarksForCourse(course.id, examType);
       const questionMarksByStudent = await getQuestionMarksForCourse(course.id, examType);
 
-      return studentRows.map((s) => ({
-        id: s.id,
-        name: s.name,
-        reg_no: s.reg_no,
-        roll: s.reg_no,
-        totalMarks: parseFloat(s.total_marks) || 0,
-        coMarks: coMarksByStudent.get(s.id) || {},
-        questionMarks: questionMarksByStudent.get(s.id) || {},
-      }));
+      const marksByReg = new Map();
+      studentRows.forEach((s) => {
+        marksByReg.set(String(s.reg_no).toLowerCase(), {
+          id: s.id, studentId: s.student_id || null,
+          totalMarks: parseFloat(s.total_marks) || 0,
+          coMarks: coMarksByStudent.get(s.id) || {},
+          questionMarks: questionMarksByStudent.get(s.id) || {},
+        });
+      });
+
+      // Roster from Student Master/enrollment (the source of truth) merged with saved marks
+      const roster = enrolled.map((st) => {
+        const m = marksByReg.get(String(st.registration_number).toLowerCase()) || {};
+        return {
+          id: m.id || null,
+          studentId: m.studentId || st.id || null,
+          name: st.name || m.name,
+          reg_no: st.registration_number || st.reg_no,
+          roll: st.roll_number || st.roll_no || st.registration_number,
+          totalMarks: m.totalMarks || 0,
+          coMarks: m.coMarks || {},
+          questionMarks: m.questionMarks || {},
+          hasSavedMarks: Boolean(m.id),
+        };
+      });
+
+      // Include any legacy marks rows whose student is no longer in the roster (preserved,
+      // never dropped) — marked so the UI can show them as no-longer-enrolled if it wishes.
+      const rosterRegs = new Set(roster.map((s) => String(s.reg_no).toLowerCase()));
+      const extra = studentRows
+        .filter((s) => !rosterRegs.has(String(s.reg_no).toLowerCase()))
+        .map((s) => ({
+          id: s.id,
+          studentId: s.student_id || null,
+          name: s.name,
+          reg_no: s.reg_no,
+          roll: s.reg_no,
+          totalMarks: parseFloat(s.total_marks) || 0,
+          coMarks: coMarksByStudent.get(s.id) || {},
+          questionMarks: questionMarksByStudent.get(s.id) || {},
+          hasSavedMarks: true,
+        }));
+
+      return [...roster, ...extra];
     };
 
     const mtt = await buildForExamType('MTT');
     const ett = await buildForExamType('ETT');
 
-    res.json({ success: true, data: { mtt, ett } });
+    res.json({ success: true, data: { mtt, ett, contextStudents: enrolled.length } });
   } catch (err) {
     next(err);
   }
@@ -606,6 +731,18 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
 
     await deleteMarksByCourse(course.id, examType);
 
+    // Phase 11 — resolve Student Master IDs so saved marks reference the actual student
+    // record (stable FK), not just the reg_no text. Unknown/legacy rows keep NULL student_id.
+    const [enrolledStudents] = await pool.query(
+      `SELECT st.id, st.registration_number FROM course_enrollments ce
+       JOIN students st ON st.id = ce.student_id
+       WHERE ce.course_id = ?`,
+      [course.id],
+    );
+    const studentIdByReg = new Map(
+      enrolledStudents.map((s) => [String(s.registration_number).toLowerCase(), s.id]),
+    );
+
     for (const student of students) {
       let coMarksToSave;
       let questionMarksToSave = [];
@@ -649,6 +786,7 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
         ...legacyCoValues,
         totalMarks,
         questionMarks: null, // superseded by student_question_marks
+        studentId: studentIdByReg.get(String(student.roll || student.reg_no).toLowerCase()) || null,
       });
 
       // eslint-disable-next-line no-await-in-loop
@@ -808,6 +946,8 @@ router.post('/courses/import-json', protect, authorizeRoles('Admin', 'Examinatio
       semester: c.semester || 1,
       academicYear: c.academic_year || '',
       numCos: (outcomes || []).length || 5,
+      programId: c.program_id || null,
+      sessionId: c.academic_session_id || null,
     });
 
     if (config && Object.keys(config).length > 0) {
@@ -929,6 +1069,20 @@ router.put('/courses/:id/academic-map', protect, checkCoursePermission(['Teacher
     // (or vice versa, by instead calling this with a new programId) — never automatic, and
     // always audited so what changed and by whom is traceable.
     const { programId, sessionId, semester, department, school } = req.body;
+    const targetProgramId = programId !== undefined ? programId : course.program_id;
+    if (targetProgramId) {
+      const program = await getProgramByIdWithContext(targetProgramId);
+      if (!program) {
+        return res.status(400).json({ success: false, message: 'The selected Program does not exist.' });
+      }
+      const targetSemester = semester !== undefined ? Number(semester) : Number(course.semester);
+      if (Number.isFinite(targetSemester) && (targetSemester < 1 || targetSemester > program.total_semesters)) {
+        return res.status(400).json({
+          success: false,
+          message: `Semester ${targetSemester} is invalid for ${program.name} (${program.duration} year(s) = ${program.total_semesters} semesters). Valid range: Sem 1 to Sem ${program.total_semesters}.`,
+        });
+      }
+    }
     const sets = [];
     const values = [];
     if (programId !== undefined) { sets.push('program_id = ?'); values.push(programId); }
@@ -1192,6 +1346,7 @@ router.post('/courses/:id/marks/import', protect, checkCoursePermission(['Teache
         examType,
         totalMarks,
         questionMarks: null,
+        studentId: row.studentId || null,
       });
       // eslint-disable-next-line no-await-in-loop
       await saveStudentCoMarks(studentMarkId, outcomes
@@ -1215,12 +1370,24 @@ const {
   unenrollStudentFromCourse,
   enrollManyStudentsInCourse,
   enrollEntireClassInCourse,
-  getCourseHierarchyContext,
 } = require('../models/academicModel');
+const { enrollStudentInAllContextCourses } = require('../models/studentMasterModel');
 
 // GET /api/courses/:id/enrollment — list enrolled students
+// Phase 10 — when the course is linked to the academic hierarchy, students belonging to the
+// course's context (Program + Session + Semester) are auto-synced into enrollment first
+// (additive, idempotent), so the SAME students automatically appear in every course of their
+// context without per-course manual enrollment. Legacy courses keep the enrollment table.
 router.get('/courses/:id/enrollment', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
+    const course = await getCourseById(req.params.id, req.user.id, req.user.role);
+    if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
+    if (course.program_id && course.academic_session_id && course.semester) {
+      await enrollStudentInAllContextCourses({
+        studentId: null, programId: course.program_id,
+        sessionId: course.academic_session_id, semester: course.semester,
+      });
+    }
     const students = await getEnrolledStudentsForCourse(req.params.id);
     res.json({ success: true, data: { courseId: req.params.id, students } });
   } catch (err) { next(err); }

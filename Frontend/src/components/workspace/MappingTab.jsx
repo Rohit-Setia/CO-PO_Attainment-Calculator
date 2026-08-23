@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Save, Loader2 } from 'lucide-react';
 import { Skeleton } from '../ui/skeleton';
 
@@ -27,22 +28,73 @@ function MappingSelect({ value, onChange, disabled, label }) {
   );
 }
 
+// The matrix columns are derived from the course's mapping rows combined with the PROGRAM's
+// own outcome definitions (programOutcomes.PO / programOutcomes.PSO). Definition code → column
+// key is matched exactly ("PO5" → po5), so a program with a different outcome set (e.g. only
+// PO1–PO8, or a deactivated PO) adapts automatically. Falls back to the stored po1..poN /
+// pso1..psoM keys when no definitions are supplied.
+const buildColumns = (mappingValues, programOutcomes) => {
+  const first = mappingValues?.[0] || {};
+  const poKeys = Object.keys(first).filter((k) => /^po\d+$/.test(k)).sort((a, b) => parseInt(a.slice(2), 10) - parseInt(b.slice(2), 10));
+  const psoKeys = Object.keys(first).filter((k) => /^pso\d+$/.test(k)).sort((a, b) => parseInt(a.slice(3), 10) - parseInt(b.slice(3), 10));
+
+  const defMap = (defs) => {
+    const map = {};
+    (defs || []).forEach((d) => {
+      const m = String(d.code || '').match(/^(PO|PSO)(\d+)$/i);
+      if (m) map[`${m[1].toLowerCase()}${m[2]}`] = d;
+    });
+    return map;
+  };
+
+  const poDefs = programOutcomes?.PO ? defMap(programOutcomes.PO) : null;
+  const psoDefs = programOutcomes?.PSO ? defMap(programOutcomes.PSO) : null;
+
+  const withDefs = (keys, defs) => keys
+    .filter((k) => !defs || defs[k])
+    .map((k) => ({ key: k, code: defs?.[k]?.code || k.toUpperCase(), title: defs?.[k]?.title || '', description: defs?.[k]?.description || '' }));
+
+  return {
+    poCols: withDefs(poKeys, poDefs),
+    psoCols: withDefs(psoKeys, psoDefs),
+  };
+};
+
 // courseOutcomes: [{ id, co_number }] — the course's actual active COs, any count/numbering.
 // mappingValues: [{ co_id, po1..po12, pso1..pso3 }] and mappingAverages: { avg_po1..avg_pso3 }.
+// programOutcomes: { PO: [{code,title,description}], PSO: [...] } — the program's own definitions.
 export default function MappingTab({
   courseOutcomes,
   mappingValues,
-  mappingAverages,
+  programOutcomes,
   saving,
   handleMappingChange,
   saveMappingMatrix,
   readOnly = false
 }) {
+  const valuesByCoId = new Map((mappingValues || []).map((v) => [v.co_id, v]));
+  const { poCols, psoCols } = buildColumns(mappingValues, programOutcomes);
+
+  // Live averages computed from the CURRENT selections (including unsaved edits) — updates
+  // immediately when a dropdown changes. Unmapped (0/'-') values are ignored, matching the
+  // backend's getCoPoAveragesForCourse behaviour. Columns are re-derived inside the memo so
+  // the dependency stays a single stable value (mappingValues).
+  const liveAverages = useMemo(() => {
+    const avgs = {};
+    const vals = mappingValues || [];
+    const { poCols: po, psoCols: pso } = buildColumns(mappingValues, programOutcomes);
+    [...po, ...pso].forEach(({ key }) => {
+      const nonZero = vals.map((v) => parseInt(v[key], 10) || 0).filter((v) => v > 0);
+      avgs[`avg_${key}`] = nonZero.length > 0
+        ? parseFloat((nonZero.reduce((a, b) => a + b, 0) / nonZero.length).toFixed(2))
+        : 0;
+    });
+    return avgs;
+  }, [mappingValues, programOutcomes]);
+
   if (!courseOutcomes || !mappingValues) {
     return <Skeleton className="h-96 rounded-2xl" />;
   }
-
-  const valuesByCoId = new Map(mappingValues.map((v) => [v.co_id, v]));
 
   return (
     <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
@@ -65,18 +117,24 @@ export default function MappingTab({
 
       {courseOutcomes.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">Add at least one Course Outcome in Setup & Configs before mapping to POs.</p>
+      ) : poCols.length === 0 && psoCols.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">No PO/PSO definitions were returned for this course's academic context.</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full border-collapse text-center text-sm">
             <thead className="bg-muted/60 font-bold text-muted-foreground">
               <tr>
                 <th className="w-24 border-b border-r border-border bg-muted/60 px-4 py-3 text-left">CO / PO</th>
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <th key={i} className="border-b border-r border-border px-2 py-3 text-xs">PO{i + 1}</th>
+                {poCols.map((col) => (
+                  <th key={col.key} className="border-b border-r border-border px-2 py-3 text-xs" title={col.title || col.description || ''}>
+                    {col.code}
+                  </th>
                 ))}
-                <th className="border-b border-r border-border px-2 py-3 text-xs">PSO1</th>
-                <th className="border-b border-r border-border px-2 py-3 text-xs">PSO2</th>
-                <th className="border-b border-border px-2 py-3 text-xs">PSO3</th>
+                {psoCols.map((col, i) => (
+                  <th key={col.key} className={`border-b ${i < psoCols.length - 1 ? 'border-r' : ''} border-border px-2 py-3 text-xs`} title={col.title || col.description || ''}>
+                    {col.code}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -85,26 +143,23 @@ export default function MappingTab({
                 return (
                   <tr key={co.id} className="border-b border-border hover:bg-muted/30">
                     <td className="border-r border-border bg-muted/20 px-4 py-3 text-left font-bold text-foreground">CO{co.co_number}</td>
-                    {Array.from({ length: 12 }).map((_, poIdx) => {
-                      const poNum = poIdx + 1;
-                      return (
-                        <td key={poIdx} className="border-r border-border p-1">
-                          <MappingSelect
-                            disabled={readOnly}
-                            value={row[`po${poNum}`]}
-                            label={`CO${co.co_number} → PO${poNum}`}
-                            onChange={(e) => handleMappingChange(co.id, `po${poNum}`, e.target.value)}
-                          />
-                        </td>
-                      );
-                    })}
-                    {['pso1', 'pso2', 'pso3'].map((psoKey, psoIdx) => (
-                      <td key={psoKey} className={`${psoIdx < 2 ? 'border-r' : ''} border-border p-1`}>
+                    {poCols.map((col) => (
+                      <td key={col.key} className="border-r border-border p-1">
                         <MappingSelect
                           disabled={readOnly}
-                          value={row[psoKey]}
-                          label={`CO${co.co_number} → ${psoKey.toUpperCase()}`}
-                          onChange={(e) => handleMappingChange(co.id, psoKey, e.target.value)}
+                          value={row[col.key]}
+                          label={`CO${co.co_number} → ${col.code}`}
+                          onChange={(e) => handleMappingChange(co.id, col.key, e.target.value)}
+                        />
+                      </td>
+                    ))}
+                    {psoCols.map((col) => (
+                      <td key={col.key} className="border-r border-border p-1">
+                        <MappingSelect
+                          disabled={readOnly}
+                          value={row[col.key]}
+                          label={`CO${co.co_number} → ${col.code}`}
+                          onChange={(e) => handleMappingChange(co.id, col.key, e.target.value)}
                         />
                       </td>
                     ))}
@@ -113,14 +168,14 @@ export default function MappingTab({
               })}
               <tr className="border-t border-border bg-muted/30 font-bold">
                 <td className="border-r border-border px-4 py-3 text-left text-foreground">Average</td>
-                {Array.from({ length: 12 }).map((_, poIdx) => (
-                  <td key={poIdx} className="border-r border-border px-2 py-3 text-xs text-warning">
-                    {(mappingAverages?.[`avg_po${poIdx + 1}`] ?? 0).toFixed(2)}
+                {poCols.map((col) => (
+                  <td key={col.key} className="border-r border-border px-2 py-3 text-xs text-warning">
+                    {(liveAverages[`avg_${col.key}`] ?? 0).toFixed(2)}
                   </td>
                 ))}
-                {['pso1', 'pso2', 'pso3'].map((psoKey, i) => (
-                  <td key={psoKey} className={`${i < 2 ? 'border-r' : ''} border-border px-2 py-3 text-xs text-warning`}>
-                    {(mappingAverages?.[`avg_${psoKey}`] ?? 0).toFixed(2)}
+                {psoCols.map((col) => (
+                  <td key={col.key} className="border-r border-border px-2 py-3 text-xs text-warning">
+                    {(liveAverages[`avg_${col.key}`] ?? 0).toFixed(2)}
                   </td>
                 ))}
               </tr>

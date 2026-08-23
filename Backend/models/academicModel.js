@@ -119,6 +119,8 @@ const createBranch = async ({ departmentId, name, code }) => runOrDuplicate('bra
 // ---------- Programs ----------
 // schoolId is an additional read-scope filter (used for School Admin accounts) — joins up
 // through department_id since programs have no school_id column of their own.
+// total_semesters is computed dynamically: duration (years) × 2 — never hard-coded, and a
+// change to the program's duration automatically changes the valid semester range everywhere.
 const getProgramsByDepartment = async (departmentId, schoolId) => {
   const conditions = [];
   const params = [];
@@ -130,8 +132,27 @@ const getProgramsByDepartment = async (departmentId, schoolId) => {
     params.push(schoolId);
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const [rows] = await pool.query(`SELECT p.* FROM programs p ${joins} ${where} ORDER BY p.name ASC`, params);
+  const [rows] = await pool.query(
+    `SELECT p.*, (p.duration * 2) AS total_semesters FROM programs p ${joins} ${where} ORDER BY p.name ASC`,
+    params,
+  );
   return rows;
+};
+
+// Resolves a single program with its department/school context + computed total_semesters.
+// Used by course creation/editing to validate the semester range and derive free-text names.
+const getProgramByIdWithContext = async (programId) => {
+  const [rows] = await pool.query(
+    `SELECT p.*, (p.duration * 2) AS total_semesters,
+            d.name AS department_name, d.code AS department_code,
+            s.name AS school_name, s.id AS school_id
+     FROM programs p
+     LEFT JOIN departments d ON d.id = p.department_id
+     LEFT JOIN schools s ON s.id = d.school_id
+     WHERE p.id = ?`,
+    [programId],
+  );
+  return rows[0] || null;
 };
 
 const createProgram = async ({ departmentId, branchId, name, code, degree, duration }) => runOrDuplicate('program code', async () => {
@@ -357,17 +378,20 @@ const enrollEntireClassInCourse = async (classId, courseId) => {
 };
 
 // ---------- Course ↔ Hierarchy context ----------
-// Resolves School/Department/Program/Academic Session names for one or more courses via
-// courses.program_id / courses.academic_session_id. Used for breadcrumb display wherever a
-// course is shown — the single place this join is written, reused by both the per-course
-// attainment page and the dashboard aggregation so the two never drift apart.
+// Resolves School/Department/Program/Academic Session names + program metadata (code, degree,
+// duration, computed total semesters) for one or more courses via courses.program_id /
+// courses.academic_session_id. Used for breadcrumb display wherever a course is shown — the
+// single place this join is written, reused by both the per-course attainment page and the
+// dashboard aggregation so the two never drift apart.
 const getCourseHierarchyContext = async (courseIds) => {
   if (!Array.isArray(courseIds) || courseIds.length === 0) return new Map();
   const placeholders = courseIds.map(() => '?').join(', ');
   const [rows] = await pool.query(
     `SELECT c.id AS course_id, c.program_id, c.academic_session_id,
-            p.name AS program_name, d.id AS department_id, d.name AS department_name, d.code AS department_code,
-            s.id AS school_id, s.name AS school_name, sess.name AS session_name
+            p.name AS program_name, p.code AS program_code, p.degree AS program_degree,
+            p.duration AS program_duration, (p.duration * 2) AS program_total_semesters,
+            d.id AS department_id, d.name AS department_name, d.code AS department_code,
+            s.id AS school_id, s.name AS school_name, sess.id AS session_id, sess.name AS session_name
      FROM courses c
      LEFT JOIN programs p ON p.id = c.program_id
      LEFT JOIN departments d ON d.id = p.department_id
@@ -383,7 +407,7 @@ module.exports = {
   getAllSchools, createSchool, updateSchool, deleteSchool,
   getDepartmentsBySchool, createDepartment, updateDepartment,
   getBranchesByDepartment, createBranch,
-  getProgramsByDepartment, createProgram, updateProgram,
+  getProgramsByDepartment, getProgramByIdWithContext, createProgram, updateProgram,
   getAllSessions, createSession, updateSession,
   getClasses, getClassById, createClass, updateClass,
   getStudentsForClass, addStudentToClass, removeStudentFromClass, addManyStudentsToClass,

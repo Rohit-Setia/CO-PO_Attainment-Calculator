@@ -97,11 +97,11 @@ const getCourseById = async (id, userId, userRole) => {
   return rows[0];
 };
 
-const createCourse = async ({ teacherId, school, department, subjectName, courseCode, semester, academicYear, numCos }) => {
+const createCourse = async ({ teacherId, school, department, subjectName, courseCode, semester, academicYear, numCos, programId, sessionId }) => {
   const [result] = await pool.query(
-    `INSERT INTO courses (teacher_id, school, department, subject_name, course_code, semester, academic_year, num_cos) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [teacherId, school, department, subjectName, courseCode, semester, academicYear, numCos]
+    `INSERT INTO courses (teacher_id, school, department, subject_name, course_code, semester, academic_year, num_cos, program_id, academic_session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [teacherId, school, department, subjectName, courseCode, semester, academicYear, numCos, programId || null, sessionId || null]
   );
   return result.insertId;
 };
