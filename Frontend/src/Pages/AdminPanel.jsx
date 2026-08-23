@@ -2,10 +2,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { usePageHeader } from '../context/PageHeaderContext';
 import { Users, ShieldCheck, Loader2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import { fetchAllUsers, updateUserRoleStatus } from '../Api/authApi';
 
-import AppHeader from '../components/layout/AppHeader';
 import MetricCard from '../components/ui/MetricCard';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
@@ -63,12 +63,11 @@ const AdminPanel = () => {
 
   const pendingCount = users.filter((u) => !u.is_active).length;
 
-  return (
-    <div className="min-h-screen bg-background">
-      <AppHeader backTo="/dashboard" title="Admin Console" subtitle="User management & approvals" />
+  usePageHeader({ title: 'Admin Console', subtitle: 'User management & approvals' });
 
+  return (
       <PageTransition>
-        <main className="max-w-6xl mx-auto px-6 py-10">
+        <div>
           {/* Page header */}
           <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-r from-destructive/10 to-primary/10 p-8 mb-8 flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4">
@@ -204,9 +203,8 @@ const AdminPanel = () => {
           <p className="mt-8 text-center text-xs text-muted-foreground">
             Changes to role and status take effect immediately on next login.
           </p>
-        </main>
+        </div>
       </PageTransition>
-    </div>
   );
 };
 

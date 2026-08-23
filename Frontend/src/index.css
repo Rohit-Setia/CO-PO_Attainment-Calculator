@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -106,7 +108,16 @@ button:focus-visible {
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.75rem
+    --radius: 0.75rem;
+
+    /* CT University brand — Deep Navy #0D162B sidebar (persistent brand chrome). */
+    --sidebar-bg: 222 72% 11%;
+    --sidebar-foreground: 210 30% 96%;
+    --sidebar-muted: 215 20% 60%;
+    --sidebar-border: 217 45% 18%;
+    --sidebar-active-bg: 221 83% 53%;
+    --sidebar-hover-bg: 217 50% 16%;
+    --brand-accent: 221 83% 53%
   }
   /* Dark theme — tuned to match the app's existing slate/indigo academic look, not shadcn's generic navy */
   .dark {
@@ -151,5 +162,18 @@ button:focus-visible {
   }
   body {
     @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* Utility: hide scrollbar visually while preserving scroll functionality */
+.scrollbar-hide {
+  scrollbar-width: none;       /* Firefox */
+  -ms-overflow-style: none;    /* IE / Edge legacy */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;               /* Chrome / Safari / WebKit */
+}
+

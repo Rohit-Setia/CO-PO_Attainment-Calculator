@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   fetchCourseConfig, saveCourseConfig,
@@ -16,12 +16,13 @@ import {
 } from 'lucide-react';
 import { parseExcel } from '../utils/excelParser';
 import { useAuth } from '../context/AuthContext';
+import { usePageHeader } from '../context/PageHeaderContext';
 
-import AppHeader from '../components/layout/AppHeader';
 import ErrorState from '../components/ui/ErrorState';
 import { Skeleton } from '../components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import PageTransition from '../components/ui/PageTransition';
+import Breadcrumb from '../components/ui/Breadcrumb';
 
 import ConfigTab from '../components/workspace/ConfigTab';
 import MappingTab from '../components/workspace/MappingTab';
@@ -30,13 +31,17 @@ import AttainmentTab from '../components/workspace/AttainmentTab';
 
 const emptyStudent = () => ({ name: '', roll: '', reg_no: '', totalMarks: 0, coMarks: {}, questionMarks: {} });
 
+const VALID_TABS = ['config', 'mapping', 'marks', 'attainment'];
+
 export default function CourseWorkspace() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { hasRole } = useAuth();
   const isReadOnly = hasRole('Viewer');
+  const [searchParams] = useSearchParams();
 
   const [course, setCourse] = useState(null);
+  const [hierarchy, setHierarchy] = useState(null);
   const [config, setConfig] = useState(null);
   const [courseOutcomes, setCourseOutcomes] = useState(null);
   const [mapping, setMapping] = useState({ values: [], averages: {} });
@@ -45,7 +50,9 @@ export default function CourseWorkspace() {
   const [maxQuestionsAllowed, setMaxQuestionsAllowed] = useState(50);
   const [attainment, setAttainment] = useState(null);
 
-  const [activeTab, setActiveTab] = useState('config');
+  // Supports deep-linking from the sidebar's course-picker pages, e.g. /courses/3?tab=marks
+  const requestedTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(VALID_TABS.includes(requestedTab) ? requestedTab : 'config');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingQuestions, setSavingQuestions] = useState(false);
@@ -62,6 +69,7 @@ export default function CourseWorkspace() {
     try {
       const configRes = await fetchCourseConfig(id);
       setCourse(configRes.data.data.course);
+      setHierarchy(configRes.data.data.hierarchy || null);
       setConfig(configRes.data.data.config);
       setCourseOutcomes(configRes.data.data.outcomes);
 
@@ -317,90 +325,62 @@ export default function CourseWorkspace() {
     }
   };
 
-  // Recharts helpers — driven entirely by the actual active CO list, any count/numbering.
-  const getCOBarChartData = () => {
-    if (!attainment || !courseOutcomes) return [];
-    return courseOutcomes.map((co) => ({
-      name: `CO${co.co_number}`,
-      Internal: attainment.mttAttainment?.perCo?.[co.id]?.level || 0,
-      External: attainment.ettAttainment?.perCo?.[co.id]?.level || 0,
-      Combined: attainment.combinedCO?.[co.id]?.combinedLevel || 0,
-    }));
-  };
-
-  const getPORadarChartData = () => {
-    if (!attainment) return [];
-    const data = [];
-    for (let po = 1; po <= 12; po++) data.push({ subject: `PO${po}`, Attainment: attainment.poResults[`po${po}`] || 0, fullMark: 3 });
-    for (let pso = 1; pso <= 3; pso++) data.push({ subject: `PSO${pso}`, Attainment: attainment.poResults[`pso${pso}`] || 0, fullMark: 3 });
-    return data;
-  };
+  // Called unconditionally (before any early return) since it's a hook — title/subtitle read
+  // 'Course Workspace'/'' until the course loads, then update once, in place.
+  usePageHeader({
+    title: course ? `${course.subject_name} (${course.course_code})` : 'Course Workspace',
+    subtitle: course ? `${course.school} • ${course.department} • Sem ${course.semester} (${course.academic_year})` : '',
+    actions: course ? (
+      <>
+        <button
+          onClick={handleExportJson}
+          title="Export all course data (configs, mapping, marks) as a JSON file to share with another teacher"
+          className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-secondary"
+        >
+          <Share2 className="h-4 w-4" /> Export
+        </button>
+        <button
+          onClick={handleExportExcel}
+          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary-hover"
+        >
+          <Download className="h-4 w-4" /> Report
+        </button>
+      </>
+    ) : null,
+  });
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <div className="flex items-center gap-3 border-b border-border px-6 py-4">
-          <Skeleton className="h-10 w-10 rounded-xl" />
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-56" />
-          </div>
-        </div>
-        <div className="max-w-6xl mx-auto px-6 py-10 space-y-6">
-          <Skeleton className="h-10 w-72" />
-          <Skeleton className="h-64 w-full rounded-2xl" />
-        </div>
+      <div className="space-y-6">
+        <Skeleton className="h-10 w-72" />
+        <Skeleton className="h-64 w-full rounded-2xl" />
       </div>
     );
   }
 
   if (error || !course) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4">
-        <div className="w-full max-w-md">
-          <ErrorState title={error || 'Course not found.'} onRetry={() => navigate('/dashboard')} />
-        </div>
+      <div className="mx-auto max-w-md">
+        <ErrorState title={error || 'Course not found.'} onRetry={() => navigate('/courses')} />
       </div>
     );
   }
 
-  const headerTitle = (
-    <span className="flex items-center gap-2">
-      {course.subject_name}
-      <span className="rounded bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
-        {course.course_code}
-      </span>
-    </span>
-  );
-  const headerSubtitle = `${course.school} • ${course.department} • Sem ${course.semester} (${course.academic_year})`;
-
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader
-        backTo="/dashboard"
-        title={headerTitle}
-        subtitle={headerSubtitle}
-        actions={
-          <>
-            <button
-              onClick={handleExportJson}
-              title="Export all course data (configs, mapping, marks) as a JSON file to share with another teacher"
-              className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-secondary"
-            >
-              <Share2 className="h-4 w-4" /> Export
-            </button>
-            <button
-              onClick={handleExportExcel}
-              className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary-hover"
-            >
-              <Download className="h-4 w-4" /> Report
-            </button>
-          </>
-        }
-      />
-
       <PageTransition>
-        <div className="max-w-6xl mx-auto px-6 py-8">
+        <div>
+          <Breadcrumb
+            segments={[
+              { label: hierarchy?.schoolName },
+              { label: hierarchy?.departmentName },
+              { label: hierarchy?.programName },
+              { label: hierarchy?.sessionName },
+              { label: course?.semester ? `Semester ${course.semester}` : null },
+              { label: course ? `${course.course_code} — ${course.subject_name}` : null },
+            ]}
+            unlinkedNotice="This course is not yet linked to the university academic hierarchy (School / Department / Program / Session) — showing legacy course details only."
+          />
+
           {isReadOnly && (
             <div className="mb-6 flex items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
               <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -427,7 +407,12 @@ export default function CourseWorkspace() {
             </div>
           )}
 
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <Tabs value={activeTab} onValueChange={(tab) => {
+            setActiveTab(tab);
+            if (tab === 'attainment') {
+              triggerAttainmentRecalc();
+            }
+          }}>
             <TabsList className="mb-8">
               <TabsTrigger value="config"><Sliders className="h-4 w-4" /> Setup & Configs</TabsTrigger>
               <TabsTrigger value="mapping"><Grid className="h-4 w-4" /> Articulation Matrix</TabsTrigger>
@@ -492,13 +477,11 @@ export default function CourseWorkspace() {
               <AttainmentTab
                 attainment={attainment}
                 courseOutcomes={courseOutcomes}
-                getCOBarChartData={getCOBarChartData}
-                getPORadarChartData={getPORadarChartData}
+                config={config}
               />
             </TabsContent>
           </Tabs>
         </div>
       </PageTransition>
-    </div>
   );
 }

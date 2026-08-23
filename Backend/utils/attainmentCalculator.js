@@ -58,11 +58,14 @@ function computeAttainmentForComponent(students, courseOutcomes, config, isInter
 //   4. Per PO/PSO: (average non-zero CO->PO correlation across active COs) * overall course attainment
 function calculateCourseAttainment({ courseOutcomes, config, coPoAverages, mttStudents, ettStudents }) {
   const numCos = courseOutcomes.length;
+  const hasMttData = Array.isArray(mttStudents) && mttStudents.length > 0;
+  const hasEttData = Array.isArray(ettStudents) && ettStudents.length > 0;
+  const hasData = hasMttData || hasEttData;
 
-  const mttAttainment = mttStudents.length > 0
+  const mttAttainment = hasMttData
     ? computeAttainmentForComponent(mttStudents, courseOutcomes, config, true)
     : null;
-  const ettAttainment = ettStudents.length > 0
+  const ettAttainment = hasEttData
     ? computeAttainmentForComponent(ettStudents, courseOutcomes, config, false)
     : null;
 
@@ -72,16 +75,20 @@ function calculateCourseAttainment({ courseOutcomes, config, coPoAverages, mttSt
   const combinedCO = {};
   let directAttainmentSum = 0;
   courseOutcomes.forEach((co) => {
-    const internalLevel = mttAttainment ? mttAttainment.perCo[co.id].level : 0;
-    const externalLevel = ettAttainment ? ettAttainment.perCo[co.id].level : 0;
-    const combinedLevel = (internalLevel * (internalWeight / 100)) + (externalLevel * (externalWeight / 100));
+    const rawInternal = mttAttainment ? mttAttainment.perCo[co.id].level : 0;
+    const rawExternal = ettAttainment ? ettAttainment.perCo[co.id].level : 0;
+    
+    // Formula per methodology:
+    // If both exist: internal * intWeight% + external * extWeight%
+    // If only one exists: compute component contribution accordingly
+    const combinedLevel = (rawInternal * (internalWeight / 100)) + (rawExternal * (externalWeight / 100));
 
     combinedCO[co.id] = {
       co_id: co.id,
       co_number: co.co_number,
       description: co.description,
-      internalLevel,
-      externalLevel,
+      internalLevel: hasMttData ? mttAttainment.perCo[co.id].level : null,
+      externalLevel: hasEttData ? ettAttainment.perCo[co.id].level : null,
       combinedLevel: parseFloat(combinedLevel.toFixed(2)),
     };
     directAttainmentSum += combinedLevel;
@@ -90,12 +97,17 @@ function calculateCourseAttainment({ courseOutcomes, config, coPoAverages, mttSt
   const overallCourseAttainment = numCos ? parseFloat((directAttainmentSum / numCos).toFixed(2)) : 0.00;
 
   const poResults = {};
+  const poAverages = {};
   const poKeys = [
     ...Array.from({ length: 12 }, (_, i) => `po${i + 1}`),
     ...Array.from({ length: 3 }, (_, i) => `pso${i + 1}`),
   ];
+
+  let hasPoData = false;
   poKeys.forEach((po) => {
-    const colAverage = coPoAverages ? (coPoAverages[`avg_${po}`] || 0) : 0;
+    const colAverage = coPoAverages ? (parseFloat(coPoAverages[`avg_${po}`]) || 0) : 0;
+    poAverages[po] = colAverage;
+    if (colAverage > 0) hasPoData = true;
     poResults[po] = parseFloat((colAverage * overallCourseAttainment).toFixed(2));
   });
 
@@ -105,11 +117,15 @@ function calculateCourseAttainment({ courseOutcomes, config, coPoAverages, mttSt
     combinedCO,
     overallCourseAttainment,
     poResults,
+    poAverages,
     internalWeight,
     externalWeight,
     numCos,
     courseOutcomes: courseOutcomes.map((co) => ({ id: co.id, co_number: co.co_number, description: co.description })),
-    hasData: mttStudents.length > 0 || ettStudents.length > 0,
+    hasData,
+    hasMttData,
+    hasEttData,
+    hasPoData,
   };
 }
 
