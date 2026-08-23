@@ -53,8 +53,12 @@ const loginTeacher = async (req, res, next) => {
       });
     }
 
-    // Include role in JWT so middlewares can check it without a DB hit
-    const token = generateToken({ id: user.id, email: user.email, role: user.role });
+    // Include role + academic scope in JWT so middlewares can check both without a DB hit.
+    // school_id/department_id are null for every role except School Admin/Department Admin.
+    const token = generateToken({
+      id: user.id, email: user.email, role: user.role,
+      school_id: user.school_id || null, department_id: user.department_id || null,
+    });
 
     // Return only safe, non-sensitive fields to the client
     return res.json({
@@ -103,18 +107,25 @@ const listUsers = async (req, res, next) => {
   }
 };
 
-// Admin only: update any user's role and/or active status
+// Admin only: update any user's role and/or active status and/or School/Department scope
+// (only meaningful for School Admin / Department Admin — see userModel.addRoleScopingColumns).
 const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { role, is_active } = req.body;
+    const { role, is_active, school_id, department_id } = req.body;
 
-    const validRoles = ['Admin', 'Examination Team', 'Teacher', 'Viewer'];
+    const validRoles = ['Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin'];
     if (role !== undefined && !validRoles.includes(role)) {
       return res.status(400).json({ success: false, message: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
     }
+    if (role === 'School Admin' && !school_id) {
+      return res.status(400).json({ success: false, message: 'school_id is required when assigning the School Admin role.' });
+    }
+    if (role === 'Department Admin' && !department_id) {
+      return res.status(400).json({ success: false, message: 'department_id is required when assigning the Department Admin role.' });
+    }
 
-    const updated = await updateUserRoleAndStatus(id, { role, is_active });
+    const updated = await updateUserRoleAndStatus(id, { role, is_active, school_id, department_id });
     if (!updated) {
       return res.status(404).json({ success: false, message: 'User not found or no changes made.' });
     }

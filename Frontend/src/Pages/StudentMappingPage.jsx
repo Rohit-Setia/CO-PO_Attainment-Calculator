@@ -22,8 +22,8 @@ const StudentMappingPage = () => {
     setLoading(true);
     try {
       const [resStudents, resClasses] = await Promise.all([
-        api.get('/api/students'),
-        api.get('/api/classes')
+        api.get('/students'),
+        api.get('/classes')
       ]);
       setStudents(resStudents.data.data);
       setClasses(resClasses.data.data);
@@ -69,7 +69,7 @@ const StudentMappingPage = () => {
       const classObj = classes.find(c => c.id.toString() === selectedClass);
       
       for (const studentId of selectedStudents) {
-        await api.post(`/api/students/${studentId}/map`, {
+        await api.post(`/students/${studentId}/map`, {
           classId: classObj.id,
           programId: classObj.program_id,
           sessionId: classObj.academic_session_id,
