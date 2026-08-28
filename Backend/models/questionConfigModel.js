@@ -15,10 +15,24 @@ const createQuestionConfigTable = async () => {
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
-      FOREIGN KEY (co_id) REFERENCES course_outcomes(id),
+      FOREIGN KEY (co_id) REFERENCES course_outcomes(id) ON DELETE CASCADE,
       UNIQUE KEY unique_course_exam_qnum (course_id, exam_type, question_number)
     ) ENGINE=InnoDB;
   `);
+
+  try {
+    const [fks] = await pool.query(`
+      SELECT CONSTRAINT_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'question_configs'
+        AND REFERENCED_TABLE_NAME = 'course_outcomes' AND DELETE_RULE != 'CASCADE'
+    `);
+    for (const fk of fks) {
+      await pool.query(`ALTER TABLE question_configs DROP FOREIGN KEY ${fk.CONSTRAINT_NAME}`);
+      await pool.query('ALTER TABLE question_configs ADD FOREIGN KEY (co_id) REFERENCES course_outcomes(id) ON DELETE CASCADE');
+    }
+  } catch (err) {
+    // Ignore if not present
+  }
 };
 
 // One-time, idempotent: parses the legacy JSON blob (course_configs.questions_config_internal /
