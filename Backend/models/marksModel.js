@@ -164,10 +164,24 @@ const createStudentCoMarksTable = async () => {
       co_id INT NOT NULL,
       marks DECIMAL(6,2) NOT NULL DEFAULT 0,
       FOREIGN KEY (student_mark_id) REFERENCES student_marks(id) ON DELETE CASCADE,
-      FOREIGN KEY (co_id) REFERENCES course_outcomes(id),
+      FOREIGN KEY (co_id) REFERENCES course_outcomes(id) ON DELETE CASCADE,
       UNIQUE KEY unique_mark_co (student_mark_id, co_id)
     ) ENGINE=InnoDB;
   `);
+
+  try {
+    const [fks] = await pool.query(`
+      SELECT CONSTRAINT_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'student_co_marks'
+        AND REFERENCED_TABLE_NAME = 'course_outcomes' AND DELETE_RULE != 'CASCADE'
+    `);
+    for (const fk of fks) {
+      await pool.query(`ALTER TABLE student_co_marks DROP FOREIGN KEY ${fk.CONSTRAINT_NAME}`);
+      await pool.query('ALTER TABLE student_co_marks ADD FOREIGN KEY (co_id) REFERENCES course_outcomes(id) ON DELETE CASCADE');
+    }
+  } catch (err) {
+    // Ignore if not present
+  }
 };
 
 const createStudentQuestionMarksTable = async () => {

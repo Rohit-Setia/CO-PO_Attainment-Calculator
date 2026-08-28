@@ -200,9 +200,9 @@ export default function InternalMarksPage() {
 
   const maxFor = (co) => parseFloat(assessment === 'MTT' ? co.max_internal : co.max_external) || 0;
 
-  const setMark = (studentIdx, coId, raw) => {
-    setStudents((prev) => prev.map((s, i) => {
-      if (i !== studentIdx) return s;
+  const setMark = (regNo, coId, raw) => {
+    setStudents((prev) => prev.map((s) => {
+      if (s.regNo !== regNo) return s;
       const co = outcomes.find((c) => String(c.id) === String(coId));
       const max = maxFor(co);
       let error = null;
@@ -733,7 +733,7 @@ export default function InternalMarksPage() {
                                   min="0"
                                   step="any"
                                   value={s.coMarks[key] ?? ''}
-                                  onChange={(e) => setMark(students.indexOf(s), co.id, e.target.value)}
+                                  onChange={(e) => setMark(s.regNo, co.id, e.target.value)}
                                   title={err || ''}
                                   aria-invalid={!!err}
                                   className={`w-16 rounded border px-1.5 py-1 text-right text-sm ${err ? 'border-red-400 bg-red-50' : ''}`}

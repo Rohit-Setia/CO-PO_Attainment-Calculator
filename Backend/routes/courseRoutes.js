@@ -43,8 +43,18 @@ const { calculateCourseAttainment } = require('../utils/attainmentCalculator');
 const pool = require('../config/db');
 const { findUserByEmail } = require('../models/userModel');
 const { logAction } = require('../models/adminAuditModel');
-const { getCourseHierarchyContext, getProgramByIdWithContext } = require('../models/academicModel');
+const {
+  getCourseHierarchyContext,
+  getProgramByIdWithContext,
+  getEnrolledStudentsForCourse,
+  enrollStudentInCourse,
+  unenrollStudentFromCourse,
+  enrollManyStudentsInCourse,
+  enrollEntireClassInCourse,
+} = require('../models/academicModel');
+const { enrollStudentInAllContextCourses } = require('../models/studentMasterModel');
 const { getProgramOutcomesForCourse } = require('../models/programOutcomeModel');
+const { buildMarksEntryWorkbook, buildMarksFileName } = require('../utils/marksTemplate');
 
 const DEFAULT_CONFIG = {
   threshold_percent_internal: 40.0,
@@ -92,7 +102,15 @@ router.get('/courses', protect, async (req, res, next) => {
       courseIds,
     );
     const [mappingConfiguredRows] = await pool.query(
-      `SELECT co.course_id, MAX(cpv.po1) as anyMapped FROM course_outcomes co
+      `SELECT co.course_id,
+              MAX(GREATEST(
+                COALESCE(cpv.po1, 0), COALESCE(cpv.po2, 0), COALESCE(cpv.po3, 0),
+                COALESCE(cpv.po4, 0), COALESCE(cpv.po5, 0), COALESCE(cpv.po6, 0),
+                COALESCE(cpv.po7, 0), COALESCE(cpv.po8, 0), COALESCE(cpv.po9, 0),
+                COALESCE(cpv.po10, 0), COALESCE(cpv.po11, 0), COALESCE(cpv.po12, 0),
+                COALESCE(cpv.pso1, 0), COALESCE(cpv.pso2, 0), COALESCE(cpv.pso3, 0)
+              )) as anyMapped
+       FROM course_outcomes co
        LEFT JOIN co_po_values cpv ON cpv.co_id = co.id
        WHERE co.course_id IN (${placeholders}) AND co.is_active = 1
        GROUP BY co.course_id`,
@@ -1056,8 +1074,6 @@ router.post('/courses/import-json', protect, authorizeRoles('Admin', 'Examinatio
 // Links an existing course into the university hierarchy WITHOUT touching its
 // free-text fields (school/department/semester/academic_year stay intact unless
 // the caller explicitly sends overwriteFreeText fields). Additive + reversible.
-// config/db exports the promise pool directly (module.exports = pool)
-const academicPool = require('../config/db');
 
 router.put('/courses/:id/academic-map', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
@@ -1094,14 +1110,14 @@ router.put('/courses/:id/academic-map', protect, checkCoursePermission(['Teacher
       return res.status(400).json({ success: false, message: 'Provide at least one of programId, sessionId, semester, department, school.' });
     }
     values.push(course.id);
-    await academicPool.query(`UPDATE courses SET ${sets.join(', ')} WHERE id = ?`, values);
+    await pool.query(`UPDATE courses SET ${sets.join(', ')} WHERE id = ?`, values);
     await logAction({
       actorUserId: req.user.id, actorName: req.user.email, action: 'reconcile_mapping',
       entityType: 'course', entityId: course.id,
       details: { before: { department: course.department, school: course.school, program_id: course.program_id }, requested: req.body },
     });
 
-    const [updated] = await academicPool.query(
+    const [updated] = await pool.query(
       'SELECT id, course_code, subject_name, school, department, program_id, academic_session_id, semester FROM courses WHERE id = ?',
       [course.id],
     );
@@ -1112,7 +1128,6 @@ router.put('/courses/:id/academic-map', protect, checkCoursePermission(['Teacher
 // ── Phase 5: Marks Excel Template ──────────────────────────────────────────
 // GET /api/courses/:id/marks-template?examType=MTT&classId=1
 // Generates a pre-filled workbook from Course Enrollment + Student Master.
-const { buildMarksEntryWorkbook, buildMarksFileName } = require('../utils/marksTemplate');
 
 router.get('/courses/:id/marks-template', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
@@ -1120,7 +1135,7 @@ router.get('/courses/:id/marks-template', protect, checkCoursePermission(['Teach
     if (!course) return;
 
     const examType = req.query.examType === 'ETT' ? 'ETT' : 'MTT';
-    const [ctxRows] = await academicPool.query(
+    const [ctxRows] = await pool.query(
       `SELECT c.id, c.course_code, c.subject_name, c.semester,
               p.id AS program_id, p.name AS program_name, p.code AS program_code,
               d.id AS department_id, d.name AS department_name,
@@ -1139,7 +1154,7 @@ router.get('/courses/:id/marks-template', protect, checkCoursePermission(['Teach
     // Optional section label from an explicit class selection
     let section = null;
     if (req.query.classId) {
-      const [cls] = await academicPool.query('SELECT section FROM academic_classes WHERE id = ?', [req.query.classId]);
+      const [cls] = await pool.query('SELECT section FROM academic_classes WHERE id = ?', [req.query.classId]);
       section = cls[0]?.section || null;
     }
 
@@ -1147,7 +1162,7 @@ router.get('/courses/:id/marks-template', protect, checkCoursePermission(['Teach
     const enrolled = await getEnrolledStudentsForCourse(course.id);
 
     // Pre-fill already-saved marks for this exam type (matched by reg_no)
-    const [markRows] = await academicPool.query(
+    const [markRows] = await pool.query(
       'SELECT id, reg_no FROM student_marks WHERE course_id = ? AND exam_type = ?',
       [course.id, examType],
     );
@@ -1203,7 +1218,7 @@ const validateImportPayload = async (course, examType, rows) => {
   const enrolledByReg = new Map(enrolled.map((s) => [String(s.registration_number).toLowerCase(), s]));
 
   // Existing saved marks — needed to classify updated vs unchanged
-  const [markRows] = await academicPool.query(
+  const [markRows] = await pool.query(
     'SELECT id, reg_no FROM student_marks WHERE course_id = ? AND exam_type = ?',
     [course.id, examType],
   );
@@ -1364,14 +1379,7 @@ router.post('/courses/:id/marks/import', protect, checkCoursePermission(['Teache
 });
 
 
-const {
-  getEnrolledStudentsForCourse,
-  enrollStudentInCourse,
-  unenrollStudentFromCourse,
-  enrollManyStudentsInCourse,
-  enrollEntireClassInCourse,
-} = require('../models/academicModel');
-const { enrollStudentInAllContextCourses } = require('../models/studentMasterModel');
+
 
 // GET /api/courses/:id/enrollment — list enrolled students
 // Phase 10 — when the course is linked to the academic hierarchy, students belonging to the
