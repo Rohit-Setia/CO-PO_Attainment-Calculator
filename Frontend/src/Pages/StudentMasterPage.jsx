@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Search, Users, Plus, AlertTriangle, ChevronLeft, ChevronRight, Power } from 'lucide-react';
-import { fetchStudents, createStudent, updateStudentRecord } from '../Api/AttainmentApi';
+import { Search, Users, Plus, AlertTriangle, ChevronLeft, ChevronRight, Power, Trash2 } from 'lucide-react';
+import { fetchStudents, createStudent, updateStudentRecord, deleteStudent } from '../Api/AttainmentApi';
 import { usePageHeader } from '../context/PageHeaderContext';
+import { useAuth } from '../context/AuthContext';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
@@ -21,6 +22,8 @@ const PAGE_SIZE = 25;
 // own screen (Student Mapping) — this page links there rather than duplicating it.
 export default function StudentMasterPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canDelete = user?.role === 'Admin' || user?.role === 'Moderator';
   usePageHeader({ title: 'Student Master', subtitle: 'Search, review, and administer the university student registry' });
 
   const [rows, setRows] = useState([]);
@@ -33,6 +36,8 @@ export default function StudentMasterPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -86,6 +91,20 @@ export default function StudentMasterPage() {
       toast.error(err.response?.data?.message || 'Update failed.');
     } finally {
       setConfirmLoading(false);
+    }
+  };
+
+  const handleDeleteStudent = async () => {
+    setDeleteLoading(true);
+    try {
+      await deleteStudent(deleteTarget.id);
+      toast.success(`Student "${deleteTarget.name}" permanently deleted.`);
+      setDeleteTarget(null);
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Delete failed.');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -174,13 +193,24 @@ export default function StudentMasterPage() {
                       <Badge variant={s.status === 'Active' ? 'success' : 'secondary'}>{s.status || 'Active'}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <button
-                        onClick={() => setConfirmTarget(s)}
-                        title={s.status === 'Active' ? 'Deactivate' : 'Reactivate'}
-                        className={`ml-auto rounded-lg border p-1.5 transition ${s.status === 'Active' ? 'border-destructive/30 text-destructive hover:bg-destructive/10' : 'border-success/30 text-success hover:bg-success/10'}`}
-                      >
-                        <Power className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => setConfirmTarget(s)}
+                          title={s.status === 'Active' ? 'Deactivate' : 'Reactivate'}
+                          className={`rounded-lg border p-1.5 transition ${s.status === 'Active' ? 'border-destructive/30 text-destructive hover:bg-destructive/10' : 'border-success/30 text-success hover:bg-success/10'}`}
+                        >
+                          <Power className="h-3.5 w-3.5" />
+                        </button>
+                        {canDelete && (
+                          <button
+                            onClick={() => setDeleteTarget(s)}
+                            title="Permanently delete student"
+                            className="rounded-lg border border-destructive/40 p-1.5 text-destructive transition hover:bg-destructive hover:text-white"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -235,6 +265,16 @@ export default function StudentMasterPage() {
         loading={confirmLoading}
         onConfirm={handleToggleStatus}
         onCancel={() => setConfirmTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title={`Permanently delete "${deleteTarget?.name}"?`}
+        description={`This will remove ${deleteTarget?.name} (${deleteTarget?.registration_number}) from all courses, class rosters, and marks records. This action cannot be undone.`}
+        danger
+        loading={deleteLoading}
+        onConfirm={handleDeleteStudent}
+        onCancel={() => setDeleteTarget(null)}
       />
     </PageTransition>
   );

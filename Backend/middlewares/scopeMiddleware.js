@@ -89,10 +89,13 @@ const resolveTargetScope = async (entityType, req) => {
 const authorizeAcademicWrite = (entityType) => async (req, res, next) => {
   try {
     const { role } = req.user;
-    if (role === 'Admin') return next();
+    // Admin and Moderator always have full, unscoped access to academic structure.
+    // Moderator is the HOS/HOD-level role — they manage all schools/departments/programs
+    // they are responsible for, without being pinned to a single scope FK.
+    if (role === 'Admin' || role === 'Moderator') return next();
 
     if (role !== 'School Admin' && role !== 'Department Admin') {
-      return res.status(403).json({ success: false, message: 'Forbidden: Only Admin, School Admin, Department Admin can manage academic structure.' });
+      return res.status(403).json({ success: false, message: 'Forbidden: Only Admin, Moderator, School Admin, Department Admin can manage academic structure.' });
     }
 
     const target = await resolveTargetScope(entityType, req);
@@ -136,6 +139,10 @@ const authorizeAcademicWrite = (entityType) => async (req, res, next) => {
 // Admin/Examination Team/Teacher/Viewer are returned unchanged (this only tightens, never
 // loosens, whatever route-level RBAC already applies).
 const applyReadScope = (user, filters = {}) => {
+  // Moderator, Admin, and Examination Team get unscoped reads.
+  if (user.role === 'Admin' || user.role === 'Moderator' || user.role === 'Examination Team') {
+    return filters;
+  }
   if (user.role === 'School Admin' && user.school_id) {
     return { ...filters, schoolId: user.school_id };
   }

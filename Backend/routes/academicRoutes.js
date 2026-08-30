@@ -247,7 +247,7 @@ router.get('/sessions', protect, async (req, res, next) => {
   catch (err) { next(err); }
 });
 
-router.post('/sessions', protect, authorizeRoles('Admin'), async (req, res, next) => {
+router.post('/sessions', protect, authorizeRoles('Admin', 'Moderator'), async (req, res, next) => {
   try {
     const { name, startYear, endYear } = req.body;
     if (!name) return res.status(400).json({ success: false, message: 'Session name is required.' });
@@ -257,7 +257,7 @@ router.post('/sessions', protect, authorizeRoles('Admin'), async (req, res, next
   } catch (err) { next(err); }
 });
 
-router.put('/sessions/:id', protect, authorizeRoles('Admin'), async (req, res, next) => {
+router.put('/sessions/:id', protect, authorizeRoles('Admin', 'Moderator'), async (req, res, next) => {
   try {
     const updated = await updateSession(req.params.id, req.body);
     if (!updated) return res.status(404).json({ success: false, message: 'Session not found.' });

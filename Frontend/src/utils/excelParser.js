@@ -283,9 +283,122 @@ export const parseExcel = (
       setStatus("❌ Excel parsing failed")
       if (setIssues) setIssues([])
     }
-  }
+  }  // ← closes reader.onload
   reader.readAsArrayBuffer(file)
 }
+
+/*
+  inferQuestionConfigsFromExcel(file, courseOutcomes)
+  ─────────────────────────────────────────────────────
+  Promise-based. Inspects the raw header structure of the uploaded Excel and attempts
+  to extract question configurations automatically:
+    • Detects Q-header row (Q1, Q2, ... or Question1 …).
+    • Detects CO row (CO1, CO2 … or CO-# labels aligned below each question).
+    • Detects max-marks row (numeric row immediately after the question header row).
+    • Returns: { questions: [{ question_number, co_number, max_marks }], warnings: [] }
+    • Returns null if no question headers are found (caller falls back to CO-wise mode).
+
+  co_number is resolved from the CO column in the sheet. If a question's CO cannot be
+  determined, co_number is set to null with a warning; the caller can still auto-save
+  other questions that do have a CO assignment.
+*/
+export const inferQuestionConfigsFromExcel = (file, courseOutcomes) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        const header = detectHeaderRows(rows);
+        if (!header || header.qRow === -1) {
+          resolve(null); // No question headers — not a question-wise sheet
+          return;
+        }
+
+        const warnings = [];
+        const qRow = rows[header.qRow];
+
+        // Build: question_number -> colIdx
+        const qColByNumber = {};
+        qRow.forEach((cell, idx) => {
+          const h = norm(cell);
+          const m = h.match(/^(?:q|question)(\d+)(?:%)?$/);
+          if (m && !h.includes('%')) {
+            qColByNumber[parseInt(m[1], 10)] = idx;
+          }
+        });
+
+        const questionNumbers = Object.keys(qColByNumber).map(Number).sort((a, b) => a - b);
+        if (questionNumbers.length === 0) { resolve(null); return; }
+
+        // Detect CO row: prefer a row ABOVE the qRow that has CO1, CO2 … headers.
+        // If not found, fall back to the coRow detected by detectHeaderRows.
+        let coRowIdx = header.coRow;
+
+        // Build: colIdx -> co_number (from whatever CO row we have)
+        const coByColIdx = {};
+        if (coRowIdx !== -1 && rows[coRowIdx]) {
+          rows[coRowIdx].forEach((cell, idx) => {
+            const h = norm(cell);
+            const m = h.match(/^co(\d+)$/);
+            if (m) coByColIdx[idx] = parseInt(m[1], 10);
+          });
+        }
+
+        // If there is a CO row BELOW the question-header row (pattern: q-header row, then a CO-label row),
+        // use that instead — common pattern in MTT sheets.
+        const rowAfterQ = rows[header.qRow + 1] || [];
+        let usedSubRow = false;
+        const subRowCoMap = {};
+        rowAfterQ.forEach((cell, idx) => {
+          const h = norm(cell);
+          const m = h.match(/^co(\d+)$/);
+          if (m) { subRowCoMap[idx] = parseInt(m[1], 10); usedSubRow = true; }
+        });
+        if (usedSubRow && Object.keys(subRowCoMap).length > 0) {
+          Object.assign(coByColIdx, subRowCoMap);
+        }
+
+        // Detect max-marks row: scan the 2-3 rows after qRow for a row that has
+        // numeric values in the question columns.
+        let maxMarksRow = null;
+        const scanStart = header.qRow + (usedSubRow ? 2 : 1);
+        for (let r = scanStart; r < Math.min(rows.length, scanStart + 4); r++) {
+          const rowCells = rows[r] || [];
+          const qValues = questionNumbers.map((q) => Number(rowCells[qColByNumber[q]]));
+          const allNumeric = qValues.every((v) => !isNaN(v) && v > 0);
+          if (allNumeric) { maxMarksRow = r; break; }
+        }
+
+        // Resolve co_number for each question via its column's CO mapping.
+        const questions = questionNumbers.map((qNum) => {
+          const colIdx = qColByNumber[qNum];
+          const coNumber = coByColIdx[colIdx] ?? null;
+          const rawMax = maxMarksRow !== null ? Number(rows[maxMarksRow]?.[colIdx]) : NaN;
+          const maxMarks = !isNaN(rawMax) && rawMax > 0 ? rawMax : 10; // default 10 if not found
+
+          if (coNumber === null) {
+            warnings.push(`Q${qNum}: could not determine CO assignment from the sheet — set it manually after import.`);
+          } else {
+            const coExists = courseOutcomes.some((c) => c.co_number === coNumber);
+            if (!coExists) {
+              warnings.push(`Q${qNum}: references CO${coNumber} which is not configured for this course.`);
+            }
+          }
+
+          return { question_number: qNum, co_number: coNumber, max_marks: maxMarks };
+        });
+
+        resolve({ questions, warnings });
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file.'));
+    reader.readAsArrayBuffer(file);
+  });
 
 /* =========================
    PARSE STUDENT EXCEL (Phase 10)
@@ -302,21 +415,21 @@ export const parseStudentExcel = (file) => {
     reader.onload = (ev) => {
       try {
         const data = new Uint8Array(ev.target.result);
-        const wb = XLSX.read(data, { type: "array" });
+        const wb = XLSX.read(data, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        if (!ws) { reject(new Error("No sheets found in the workbook.")); return; }
+        if (!ws) { reject(new Error('No sheets found in the workbook.')); return; }
 
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-        if (rows.length === 0) { reject(new Error("No student rows found.")); return; }
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (rows.length === 0) { reject(new Error('No student rows found.')); return; }
 
         const headers = Object.keys(rows[0]);
         const findCol = (aliases) => headers.find((hdr) => aliases.some((a) => norm(hdr).includes(a)));
 
-        const enrollmentCol = findCol(["enrollment", "regno", "reg_no", "registration", "studentid", "studentno"]);
-        const rollCol = findCol(["roll", "rollno", "roll_no"]);
-        const nameCol = findCol(["name", "studentname", "student_name"]);
-        const emailCol = findCol(["email", "e-mail", "mail"]);
-        const phoneCol = findCol(["phone", "mobile", "contact", "telephone"]);
+        const enrollmentCol = findCol(['enrollment', 'regno', 'reg_no', 'registration', 'studentid', 'studentno']);
+        const rollCol = findCol(['roll', 'rollno', 'roll_no']);
+        const nameCol = findCol(['name', 'studentname', 'student_name']);
+        const emailCol = findCol(['email', 'e-mail', 'mail']);
+        const phoneCol = findCol(['phone', 'mobile', 'contact', 'telephone']);
 
         if (!enrollmentCol || !nameCol) {
           reject(new Error("Could not find 'Enrollment No' and 'Student Name' columns. Expected headers: Enrollment No, Roll No, Student Name, Email, Phone."));
@@ -325,11 +438,11 @@ export const parseStudentExcel = (file) => {
 
         const students = rows.map((row, idx) => ({
           rowNumber: idx + 2,
-          enrollmentNo: String(row[enrollmentCol] || "").trim(),
-          rollNo: rollCol ? String(row[rollCol] || "").trim() : "",
-          name: String(row[nameCol] || "").trim(),
-          email: emailCol ? String(row[emailCol] || "").trim() : "",
-          phone: phoneCol ? String(row[phoneCol] || "").trim() : "",
+          enrollmentNo: String(row[enrollmentCol] || '').trim(),
+          rollNo: rollCol ? String(row[rollCol] || '').trim() : '',
+          name: String(row[nameCol] || '').trim(),
+          email: emailCol ? String(row[emailCol] || '').trim() : '',
+          phone: phoneCol ? String(row[phoneCol] || '').trim() : '',
         })).filter((s) => s.enrollmentNo && s.name);
 
         resolve(students);
@@ -337,7 +450,7 @@ export const parseStudentExcel = (file) => {
         reject(err);
       }
     };
-    reader.onerror = () => reject(new Error("Failed to read file."));
+    reader.onerror = () => reject(new Error('Failed to read file.'));
     reader.readAsArrayBuffer(file);
   });
 };

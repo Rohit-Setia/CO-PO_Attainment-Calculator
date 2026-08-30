@@ -29,7 +29,7 @@ const StudentMasterPage = lazy(() => import('./Pages/StudentMasterPage'));
 const ProgramOutcomeManagement = lazy(() => import('./Pages/ProgramOutcomeManagement'));
 const ProgramOBEDashboard = lazy(() => import('./Pages/ProgramOBEDashboard'));
 
-const ADMIN_ROLES = ['Admin', 'School Admin', 'Department Admin'];
+const ADMIN_ROLES = ['Admin', 'Moderator', 'School Admin', 'Department Admin'];
 
 const PageFallback = () => (
   <div className="space-y-3">

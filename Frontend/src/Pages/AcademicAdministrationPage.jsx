@@ -30,7 +30,7 @@ const StatusBadge = ({ status }) => (
 // what actually enforces scope — this only hides actions the user very likely can't take).
 function EntityPanel({
   title, singular, icon: Icon, columns, fetchList, createFn, updateFn, fields, canWrite,
-  emptyLabel, buildEditInitialValues, extraToolbar,
+  emptyLabel, buildEditInitialValues, extraToolbar, onSuccess,
 }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,12 +59,14 @@ function EntityPanel({
     await createFn(values);
     toast.success(`${singular} created.`);
     await load();
+    onSuccess?.();
   };
 
   const handleEdit = async (values) => {
     await updateFn(dialogMode.edit.id, values);
     toast.success(`${singular} updated.`);
     await load();
+    onSuccess?.();
   };
 
   const handleToggleStatus = async () => {
@@ -179,8 +181,10 @@ function EntityPanel({
 
 export default function AcademicAdministrationPage() {
   const { hasRole } = useAuth();
-  const canWrite = hasRole('Admin', 'School Admin', 'Department Admin');
-  const canWriteSessions = hasRole('Admin'); // Sessions are University-wide, Admin-only (Section 11)
+  // Moderator (HOS/HOD level) gets full academic structure write access
+  const canWrite = hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin');
+  // Sessions are university-wide; only Admin and Moderator can create them
+  const canWriteSessions = hasRole('Admin', 'Moderator');
 
   usePageHeader({ title: 'Academic Structure', subtitle: 'Schools, Departments, Programs, Sessions & Classes' });
 
@@ -213,6 +217,22 @@ export default function AcademicAdministrationPage() {
     if (value === 'sessions') ensureLoaded('sessions');
     if (value === 'classes') { ensureLoaded('programs'); ensureLoaded('sessions'); }
   };
+
+  // refreshOptions(dep) — clears the guard for a dependency list and re-fetches it.
+  // Called after a create/update in any EntityPanel so downstream dropdowns stay fresh.
+  const refreshOptions = (dep) => {
+    loadedRef.current[dep] = false;
+    ensureLoaded(dep);
+  };
+
+  // After a school is added/updated, departments need fresh school options
+  const onSchoolChange = () => refreshOptions('schools');
+  // After a department is added, programs and branches need fresh dept options
+  const onDepartmentChange = () => { refreshOptions('departments'); };
+  // After a program is added, classes need fresh program options
+  const onProgramChange = () => { refreshOptions('programs'); };
+  // After a session is added, classes need fresh session options
+  const onSessionChange = () => refreshOptions('sessions');
 
   useEffect(() => { ensureLoaded('schools'); }, []);
 
@@ -250,6 +270,7 @@ export default function AcademicAdministrationPage() {
             fetchList={fetchSchools}
             createFn={createSchool}
             updateFn={updateSchool}
+            onSuccess={onSchoolChange}
             fields={[
               { name: 'name', label: 'School Name', required: true, placeholder: 'School of Engineering & Technology' },
               { name: 'code', label: 'School Code', placeholder: 'SET' },
@@ -275,6 +296,7 @@ export default function AcademicAdministrationPage() {
             createFn={(v) => createDepartment({ ...v, schoolId: Number(v.schoolId) })}
             updateFn={updateDepartment}
             buildEditInitialValues={(row) => ({ ...row, schoolId: String(row.school_id) })}
+            onSuccess={onDepartmentChange}
             fields={[
               { name: 'schoolId', label: 'School', type: 'select', required: true, options: schoolOptions },
               { name: 'name', label: 'Department Name', required: true, placeholder: 'Computer Science & Engineering' },
@@ -325,6 +347,7 @@ export default function AcademicAdministrationPage() {
             createFn={(v) => createProgram({ ...v, departmentId: Number(v.departmentId), duration: Number(v.duration) || 4 })}
             updateFn={updateProgram}
             buildEditInitialValues={(row) => ({ ...row, departmentId: String(row.department_id) })}
+            onSuccess={onProgramChange}
             fields={[
               { name: 'departmentId', label: 'Department', type: 'select', required: true, options: departmentOptions },
               { name: 'name', label: 'Program Name', required: true, placeholder: 'B.Tech Computer Science & Engineering' },
@@ -350,6 +373,7 @@ export default function AcademicAdministrationPage() {
             fetchList={fetchSessions}
             createFn={createSession}
             updateFn={updateSession}
+            onSuccess={onSessionChange}
             fields={[
               { name: 'name', label: 'Session Name', required: true, placeholder: '2026-2027' },
               { name: 'startYear', label: 'Start Year', type: 'number' },

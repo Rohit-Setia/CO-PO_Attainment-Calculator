@@ -1,5 +1,7 @@
-import { useMemo } from 'react';
-import { Save, Loader2 } from 'lucide-react';
+import { useMemo, useRef } from 'react';
+import { Save, Loader2, Upload, FileDown } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { toast } from 'sonner';
 import { Skeleton } from '../ui/skeleton';
 
 const CELL_TONE = {
@@ -69,9 +71,11 @@ export default function MappingTab({
   programOutcomes,
   saving,
   handleMappingChange,
+  handleBulkMappingChange,
   saveMappingMatrix,
   readOnly = false
 }) {
+  const fileInputRef = useRef(null);
   const valuesByCoId = new Map((mappingValues || []).map((v) => [v.co_id, v]));
   const { poCols, psoCols } = buildColumns(mappingValues, programOutcomes);
 
@@ -92,6 +96,132 @@ export default function MappingTab({
     return avgs;
   }, [mappingValues, programOutcomes]);
 
+  const downloadTemplate = () => {
+    if (!courseOutcomes || courseOutcomes.length === 0) {
+      toast.error('No Course Outcomes configured for this course.');
+      return;
+    }
+    const wb = XLSX.utils.book_new();
+    const headers = ['CO / PO', ...poCols.map((c) => c.code), ...psoCols.map((c) => c.code)];
+    const rows = courseOutcomes.map((co) => {
+      const row = valuesByCoId.get(co.id) || {};
+      return [
+        `CO${co.co_number}`,
+        ...poCols.map((c) => (row[c.key] !== undefined && row[c.key] !== null && row[c.key] !== 0 ? row[c.key] : '')),
+        ...psoCols.map((c) => (row[c.key] !== undefined && row[c.key] !== null && row[c.key] !== 0 ? row[c.key] : '')),
+      ];
+    });
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws['!cols'] = [{ wch: 12 }, ...poCols.map(() => ({ wch: 8 })), ...psoCols.map(() => ({ wch: 8 }))];
+    XLSX.utils.book_append_sheet(wb, ws, 'CO-PO Matrix');
+    XLSX.writeFile(wb, 'CO_PO_Matrix_Template.xlsx');
+  };
+
+  const handleImportExcel = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        if (!ws) {
+          toast.error('No sheet found in workbook.');
+          return;
+        }
+
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (rows.length === 0) {
+          toast.error('No data found in sheet.');
+          return;
+        }
+
+        // 1. Locate header row: row that has PO/PSO or CO columns
+        let headerRowIdx = -1;
+        for (let r = 0; r < Math.min(rows.length, 10); r++) {
+          const rowText = (rows[r] || []).map((c) => String(c || '').trim().toUpperCase());
+          if (rowText.some((c) => /^PO\d+$/i.test(c) || /^PSO\d+$/i.test(c) || c === 'CO / PO' || c === 'CO')) {
+            headerRowIdx = r;
+            break;
+          }
+        }
+
+        if (headerRowIdx === -1) {
+          toast.error('Could not find header row with PO/PSO columns.');
+          return;
+        }
+
+        const headerRow = rows[headerRowIdx];
+        const colMap = {};
+        let coColIdx = 0;
+        headerRow.forEach((cell, idx) => {
+          const norm = String(cell || '').trim().toLowerCase().replace(/[\s/_-]/g, '');
+          if (norm === 'copo' || norm === 'co' || norm === 'courseoutcome') {
+            coColIdx = idx;
+          }
+          const mPo = norm.match(/^po(\d+)$/);
+          if (mPo) colMap[idx] = `po${mPo[1]}`;
+          const mPso = norm.match(/^pso(\d+)$/);
+          if (mPso) colMap[idx] = `pso${mPso[1]}`;
+        });
+
+        // 2. Parse CO rows
+        const coByNumber = new Map(courseOutcomes.map((co) => [co.co_number, co]));
+        const newValuesByCoId = new Map((mappingValues || []).map((v) => [v.co_id, { ...v }]));
+        let importedCount = 0;
+
+        for (let r = headerRowIdx + 1; r < rows.length; r++) {
+          const row = rows[r];
+          if (!row || row.length === 0) continue;
+          const coCell = String(row[coColIdx] || '').trim();
+          const mCo = coCell.match(/^(?:co)?\s*(\d+)$/i);
+          if (!mCo) continue;
+          const coNum = parseInt(mCo[1], 10);
+          const co = coByNumber.get(coNum);
+          if (!co) continue;
+
+          const existingRow = newValuesByCoId.get(co.id) || { co_id: co.id };
+          Object.entries(colMap).forEach(([idxStr, key]) => {
+            const rawVal = row[parseInt(idxStr, 10)];
+            if (rawVal !== undefined && rawVal !== null && rawVal !== '') {
+              const num = parseInt(rawVal, 10);
+              if (!isNaN(num) && num >= 0 && num <= 3) {
+                existingRow[key] = num;
+              } else if (rawVal === '-' || rawVal === 0 || rawVal === '0') {
+                existingRow[key] = 0;
+              }
+            }
+          });
+          newValuesByCoId.set(co.id, existingRow);
+          importedCount++;
+        }
+
+        if (importedCount === 0) {
+          toast.error('No matching CO rows found in file.');
+          return;
+        }
+
+        const updatedList = Array.from(newValuesByCoId.values());
+        if (handleBulkMappingChange) {
+          handleBulkMappingChange(updatedList);
+        } else {
+          updatedList.forEach((row) => {
+            Object.entries(row).forEach(([k, v]) => {
+              if (k !== 'co_id') handleMappingChange(row.co_id, k, v);
+            });
+          });
+        }
+        toast.success(`Imported CO-PO mappings for ${importedCount} COs. Click "Save Mappings" to persist.`);
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to parse Excel file.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   if (!courseOutcomes || !mappingValues) {
     return <Skeleton className="h-96 rounded-2xl" />;
   }
@@ -104,14 +234,39 @@ export default function MappingTab({
           <p className="text-xs text-muted-foreground">Establish the correlation between Course Outcomes (COs) and Program Outcomes (POs/PSOs). 0 = none, 1 = low, 2 = medium, 3 = high.</p>
         </div>
         {!readOnly && (
-          <button
-            onClick={saveMappingMatrix}
-            disabled={saving}
-            className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md transition hover:bg-primary-hover disabled:opacity-70"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save Mappings
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleImportExcel}
+            />
+            <button
+              onClick={downloadTemplate}
+              title="Download CO-PO Matrix Excel template"
+              className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:bg-secondary"
+            >
+              <FileDown className="h-3.5 w-3.5" />
+              Template
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="Import CO-PO Matrix from Excel"
+              className="flex items-center gap-1.5 rounded-xl border border-border bg-secondary px-3 py-2 text-xs font-semibold transition hover:bg-secondary/80"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Import Excel
+            </button>
+            <button
+              onClick={saveMappingMatrix}
+              disabled={saving}
+              className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-md transition hover:bg-primary-hover disabled:opacity-70"
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Save Mappings
+            </button>
+          </div>
         )}
       </div>
 

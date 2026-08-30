@@ -355,11 +355,32 @@ const enrollStudentInCourse = async (courseId, studentId) => {
 };
 
 const unenrollStudentFromCourse = async (courseId, studentId) => {
+  // 1. Delete from course_enrollments
   const [result] = await pool.query(
     'DELETE FROM course_enrollments WHERE course_id = ? AND student_id = ?',
     [courseId, studentId],
   );
-  return result.affectedRows > 0;
+
+  // 2. Fetch student registration_number to cleanly remove any matching student_marks
+  const [studentRows] = await pool.query(
+    'SELECT registration_number FROM students WHERE id = ?',
+    [studentId],
+  );
+  const regNo = studentRows[0]?.registration_number;
+
+  // 3. Find and delete all marks records for this student in this course
+  const [markRows] = await pool.query(
+    'SELECT id FROM student_marks WHERE course_id = ? AND (student_id = ? OR (reg_no = ? AND ? != ""))',
+    [courseId, studentId, regNo || '', regNo || ''],
+  );
+  if (markRows.length > 0) {
+    const markIds = markRows.map((m) => m.id);
+    await pool.query('DELETE FROM student_co_marks WHERE student_mark_id IN (?)', [markIds]);
+    await pool.query('DELETE FROM student_question_marks WHERE student_mark_id IN (?)', [markIds]);
+    await pool.query('DELETE FROM student_marks WHERE id IN (?)', [markIds]);
+  }
+
+  return result.affectedRows > 0 || markRows.length > 0;
 };
 
 const enrollManyStudentsInCourse = async (courseId, studentIds) => {

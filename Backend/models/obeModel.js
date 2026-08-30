@@ -118,6 +118,9 @@ const computeCourseAttainmentRow = async (course, filters = {}) => {
       description: co.description,
       actualLevel,
       actualPercent,
+      // Normalised aliases consumed by obeAssessmentService (summarizeAchievement / identifyWeakFromNodes)
+      actual: actualPercent,
+      target,
       targetPercent: target,
       status: statusFor(actualPercent, target),
       studentsAssessed: mtt?.totalStudents ?? ett?.totalStudents ?? 0,
@@ -315,7 +318,11 @@ const getProgramDashboard = async (programId, filters = {}) => {
     const target = def.target === null || def.target === undefined ? null : Number(def.target);
     return {
       id: def.id, code: def.code, title: def.title, description: def.description,
-      attainment: agg.attainment, target, status: statusFor(agg.attainment, target),
+      attainment: agg.attainment,
+      // Normalised aliases for obeAssessmentService
+      actual: agg.attainment,
+      target,
+      status: statusFor(agg.attainment, target),
       mapped: agg.mapped, contributions: agg.contributions,
     };
   });
@@ -325,7 +332,11 @@ const getProgramDashboard = async (programId, filters = {}) => {
     const target = def.target === null || def.target === undefined ? null : Number(def.target);
     return {
       id: def.id, code: def.code, title: def.title, description: def.description,
-      attainment: agg.attainment, target, status: statusFor(agg.attainment, target),
+      attainment: agg.attainment,
+      // Normalised aliases for obeAssessmentService
+      actual: agg.attainment,
+      target,
+      status: statusFor(agg.attainment, target),
       mapped: agg.mapped, contributions: agg.contributions,
     };
   });

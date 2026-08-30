@@ -139,10 +139,11 @@ export default function Sidebar({ open, onClose }) {
               </div>
             ))}
 
-            {/* Administration — University Admin (unscoped) / School Admin (own School) /
-                Department Admin (own Department); the backend enforces the actual scope on
-                every request these pages make, this only decides whether to show the links. */}
-            {hasRole('Admin', 'School Admin', 'Department Admin') && (
+            {/* Administration — University Admin (unscoped) / Moderator (HOS/HOD-scoped) /
+                School Admin (own School) / Department Admin (own Department);
+                the backend enforces the actual scope on every request these pages make,
+                this only decides whether to show the links. */}
+            {hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin') && (
               <div>
                 <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.15em] text-sidebar-muted/60">
                   Administration

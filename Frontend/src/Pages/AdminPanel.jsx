@@ -20,7 +20,7 @@ import PageTransition from '../components/ui/PageTransition';
 // userModel.js's addRoleScopingColumns migration), reusing this same existing user-management
 // screen rather than a separate one. Each needs one more piece of information — which School
 // or Department they administer — captured via the pickers rendered only for that row.
-const ROLES = ['Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin'];
+const ROLES = ['Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin', 'Moderator'];
 
 const AdminPanel = () => {
   const { user } = useAuth();
