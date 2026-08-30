@@ -39,6 +39,7 @@ export const fetchStudent = (id) => axiosClient.get(`/students/${id}`);
 export const createStudent = (payload) => axiosClient.post('/students', payload);
 export const updateStudentRecord = (id, payload) => axiosClient.put(`/students/${id}`, payload);
 export const mapStudentToClass = (id, payload) => axiosClient.post(`/students/${id}/map`, payload);
+export const deleteStudent = (id) => axiosClient.delete(`/students/${id}`);
 
 // ── Course administration (Phase 7) ────────────────────────────────────────
 export const updateCourseStatus = (id, status) => axiosClient.put(`/courses/${id}/status`, { status });

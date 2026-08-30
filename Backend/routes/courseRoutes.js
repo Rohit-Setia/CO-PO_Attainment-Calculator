@@ -186,7 +186,7 @@ router.get('/courses', protect, async (req, res, next) => {
 // single source of truth: the free-text school/department fields are derived from the linked
 // program so they can never drift from the hierarchy. Semester is validated against the
 // program's computed total (duration × 2) — a 3-year BBA can never get Sem 7 or Sem 8.
-router.post('/courses', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
+router.post('/courses', protect, authorizeRoles('Admin', 'Moderator', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { programId, sessionId, subjectName, courseCode, semester, academicYear, numCos } = req.body;
     if (!programId || !subjectName || !courseCode || !semester) {
@@ -617,15 +617,19 @@ router.get('/courses/:id/marks', protect, checkCoursePermission(['Teacher', 'Vie
     const course = await loadCourseOr404(req, res);
     if (!course) return;
 
-    // Auto-sync students belonging to the course's academic context into enrollment
-    // (additive, idempotent — Phase 10). Legacy courses without a hierarchy link skip this.
-    if (course.program_id && course.academic_session_id && course.semester) {
+    let enrolled = await getEnrolledStudentsForCourse(course.id);
+    const [[{ marksCount }]] = await pool.query('SELECT COUNT(*) AS marksCount FROM student_marks WHERE course_id = ?', [course.id]);
+
+    // Auto-sync students belonging to the course's academic context into enrollment ONLY if
+    // this course has neither enrollments nor saved marks yet (brand new empty course).
+    // Once enrollments or marks exist, we respect the teacher's roster edits and never silently re-enroll removed students.
+    if (enrolled.length === 0 && marksCount === 0 && course.program_id && course.academic_session_id && course.semester) {
       await enrollStudentInAllContextCourses({
         studentId: null, programId: course.program_id,
         sessionId: course.academic_session_id, semester: course.semester,
       });
+      enrolled = await getEnrolledStudentsForCourse(course.id);
     }
-    const enrolled = await getEnrolledStudentsForCourse(course.id);
 
     const buildForExamType = async (examType) => {
       const [studentRows] = await pool.query(
@@ -940,7 +944,7 @@ router.get('/courses/:id/export-json', protect, checkCoursePermission(['Teacher'
 // 7. Import course from a v2.0 JSON snapshot (exported by this same version of the app).
 // Snapshots exported before the dynamic-CO migration (exportVersion '1.0') are not supported —
 // re-export the source course after it has gone through the startup migration.
-router.post('/courses/import-json', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
+router.post('/courses/import-json', protect, authorizeRoles('Admin', 'Moderator', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { courseData } = req.body;
     if (!courseData || !courseData.course) {

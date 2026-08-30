@@ -206,6 +206,31 @@ const mapStudentToClass = async ({ studentId, classId, programId, sessionId, sem
 // Reusable academic-mapping helper used by the course/class pages.
 const mapStudentToAcademic = mapStudentToClass;
 
+// Permanently removes a student and all associated records. Callers must have verified
+// role authorization before calling this. Steps:
+//   1. Remove course enrollments (this prevents the student from appearing in mark sheets).
+//   2. Remove class memberships.
+//   3. Remove saved marks rows — student_co_marks and student_question_marks are expected to
+//      cascade via FK ON DELETE CASCADE on student_mark_id; we explicitly delete if not.
+//   4. Remove the students row itself.
+// Never silently converts to a soft-delete — only called when user has explicitly confirmed.
+const deleteStudentById = async (studentId) => {
+  // 1. Unenroll from all courses
+  await pool.query('DELETE FROM course_enrollments WHERE student_id = ?', [studentId]);
+  // 2. Remove from class rosters
+  await pool.query('DELETE FROM class_students WHERE student_id = ?', [studentId]);
+  // 3. Remove marks (cascade tables handled by FK; explicit delete for safety)
+  const [markRows] = await pool.query('SELECT id FROM student_marks WHERE student_id = ?', [studentId]);
+  for (const m of markRows) {
+    await pool.query('DELETE FROM student_co_marks WHERE student_mark_id = ?', [m.id]);
+    await pool.query('DELETE FROM student_question_marks WHERE student_mark_id = ?', [m.id]);
+  }
+  await pool.query('DELETE FROM student_marks WHERE student_id = ?', [studentId]);
+  // 4. Delete the student
+  const [result] = await pool.query('DELETE FROM students WHERE id = ?', [studentId]);
+  return result.affectedRows > 0;
+};
+
 module.exports = {
   findStudentByAnyIdentifier,
   findStudentInContext,
@@ -217,5 +242,6 @@ module.exports = {
   enrollStudentInAllContextCourses,
   mapStudentToClass,
   mapStudentToAcademic,
+  deleteStudentById,
   norm,
 };

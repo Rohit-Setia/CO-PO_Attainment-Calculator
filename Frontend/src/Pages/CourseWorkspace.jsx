@@ -9,12 +9,13 @@ import {
   fetchCourseMarks, saveCourseMarks,
   fetchCourseAttainment, downloadCourseExcel,
   exportCourseJson, mapCourseAcademicContext,
+  unenrollStudentFromCourse,
 } from '../Api/AttainmentApi';
 import {
   Sliders, Grid, Users, TrendingUp, Download,
   Share2, AlertTriangle, X, Loader2,
 } from 'lucide-react';
-import { parseExcel } from '../utils/excelParser';
+import { parseExcel, inferQuestionConfigsFromExcel } from '../utils/excelParser';
 import { useAuth } from '../context/AuthContext';
 import { usePageHeader } from '../context/PageHeaderContext';
 
@@ -171,6 +172,13 @@ export default function CourseWorkspace() {
     });
   };
 
+  const handleBulkMappingChange = (newValues) => {
+    setMapping((prev) => ({
+      ...prev,
+      values: newValues,
+    }));
+  };
+
   const saveMappingMatrix = async () => {
     setSaving(true);
     try {
@@ -246,7 +254,25 @@ export default function CourseWorkspace() {
     });
   };
 
-  const removeStudent = (index) => {
+  // Remove a student row from the local mark list and unenroll them from this course
+  // so they don't reappear on the next page load or when switching exam types.
+  const removeStudent = async (index) => {
+    const student = students[index];
+    const sId = student?.studentId || (typeof student?.id === 'number' ? student.id : null);
+    if (sId) {
+      try {
+        await unenrollStudentFromCourse(id, sId);
+        toast.success(`${student.name || 'Student'} removed from course.`);
+      } catch (err) {
+        toast.error(`Failed to remove student: ${err?.response?.data?.message || err.message}`);
+        return; // Don't remove from local state if the server call failed
+      }
+    }
+    const regNo = (student?.reg_no || student?.roll || '').toLowerCase();
+    setMarks((prev) => ({
+      mtt: (prev.mtt || []).filter((s) => (sId && (s.studentId === sId || s.id === sId) ? false : regNo && (s.reg_no || s.roll || '').toLowerCase() === regNo ? false : true)),
+      ett: (prev.ett || []).filter((s) => (sId && (s.studentId === sId || s.id === sId) ? false : regNo && (s.reg_no || s.roll || '').toLowerCase() === regNo ? false : true)),
+    }));
     setStudents((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -277,24 +303,105 @@ export default function CourseWorkspace() {
     }
   };
 
-  const handleExcelUpload = (e) => {
+  const handleExcelUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    // Reset file input so re-uploading the same file triggers onChange again
+    e.target.value = '';
     const isInternal = activeExamType === 'MTT';
 
-    parseExcel(
-      file,
-      courseOutcomes,
-      isInternal,
-      (parsedStudents) => setStudents(parsedStudents),
-      (msg) => {
-        if (msg.startsWith('❌')) toast.error(msg);
-        else if (msg.startsWith('⚠️')) toast.warning(msg);
-        else toast.success(msg);
-      },
-      entryMode === 'question' ? savedQuestions : null,
-      setImportIssues,
-    );
+    // Step 1 — try to infer question configs from the Excel header structure.
+    // This runs before the marks parser so we can switch mode if needed.
+    try {
+      const inferred = await inferQuestionConfigsFromExcel(file, courseOutcomes || []);
+
+      if (inferred && inferred.questions.length > 0 && savedQuestions.length === 0) {
+        // Sheet has Q-headers and we have NO saved question config yet — auto-configure.
+        // Build draft questions using the inferred configs (resolved co_id from co_number).
+        const coByNumber = new Map((courseOutcomes || []).map((co) => [co.co_number, co.id]));
+        const newDraftQuestions = inferred.questions.map((q) => ({
+          key: `auto-${q.question_number}`,
+          question_number: q.question_number,
+          co_id: q.co_number !== null ? (coByNumber.get(q.co_number) ?? null) : null,
+          max_marks: q.max_marks,
+        }));
+
+        // Save to backend immediately (questions with null co_id will be caught by the guard)
+        const unassigned = newDraftQuestions.filter((q) => !q.co_id);
+        if (unassigned.length > 0) {
+          // Show warnings but don't block — teacher can fix after import
+          const warnMsgs = inferred.warnings.slice(0, 5);
+          setImportIssues(warnMsgs);
+          toast.warning(`Auto-detected ${inferred.questions.length} questions — ${unassigned.length} question(s) have unknown CO assignments. Fix them in the Question Config and re-import.`);
+          // Still switch mode and populate draft so teacher can see and fix
+          setEntryMode('question');
+          setDraftQuestions(newDraftQuestions);
+          return; // Don't parse marks yet — configs aren't saved
+        }
+
+        try {
+          await saveQuestionConfig(id, {
+            examType: activeExamType,
+            questions: newDraftQuestions.map((q) => ({
+              question_number: q.question_number,
+              co_id: q.co_id,
+              max_marks: q.max_marks,
+            })),
+          });
+          // Reload question configs from backend so the marks parser uses authoritative IDs
+          const [mttQRes, ettQRes] = await Promise.all([
+            fetchQuestionConfig(id, 'MTT'),
+            fetchQuestionConfig(id, 'ETT'),
+          ]);
+          const fresh = { MTT: mttQRes.data.data, ETT: ettQRes.data.data };
+          setQuestionConfigs(fresh);
+          setDraftQuestions(fresh[activeExamType].map((q) => ({ key: q.id, question_number: q.question_number, co_id: q.co_id, max_marks: q.max_marks })));
+          setEntryMode('question');
+
+          const configsForParser = fresh[activeExamType];
+          toast.success(`Auto-configured ${configsForParser.length} questions from Excel headers. Now importing marks…`);
+          if (inferred.warnings.length > 0) setImportIssues(inferred.warnings);
+
+          // Now parse marks with the fresh config
+          parseExcel(
+            file,
+            courseOutcomes,
+            isInternal,
+            (parsedStudents) => setStudents(parsedStudents),
+            (msg) => { if (msg.startsWith('\u274c')) toast.error(msg); else if (msg.startsWith('\u26a0\ufe0f')) toast.warning(msg); else toast.success(msg); },
+            configsForParser,
+            setImportIssues,
+          );
+        } catch (saveErr) {
+          toast.error(`Auto-config save failed: ${saveErr?.response?.data?.message || saveErr.message}`);
+        }
+        return;
+      }
+
+      // Step 2 — no auto-config needed (CO-wise sheet or already have question config).
+      // Run the original parser with existing savedQuestions.
+      parseExcel(
+        file,
+        courseOutcomes,
+        isInternal,
+        (parsedStudents) => setStudents(parsedStudents),
+        (msg) => { if (msg.startsWith('\u274c')) toast.error(msg); else if (msg.startsWith('\u26a0\ufe0f')) toast.warning(msg); else toast.success(msg); },
+        entryMode === 'question' ? savedQuestions : null,
+        setImportIssues,
+      );
+    } catch (inferErr) {
+      console.warn('Excel inference error (non-fatal):', inferErr);
+      // Fallback: run parser normally
+      parseExcel(
+        file,
+        courseOutcomes,
+        isInternal,
+        (parsedStudents) => setStudents(parsedStudents),
+        (msg) => { if (msg.startsWith('\u274c')) toast.error(msg); else if (msg.startsWith('\u26a0\ufe0f')) toast.warning(msg); else toast.success(msg); },
+        entryMode === 'question' ? savedQuestions : null,
+        setImportIssues,
+      );
+    }
   };
 
   // Section 20 — legacy department (free text, set at creation) vs. the linked hierarchy's
@@ -540,6 +647,7 @@ export default function CourseWorkspace() {
                 programOutcomes={mapping.programOutcomes}
                 saving={saving}
                 handleMappingChange={handleMappingChange}
+                handleBulkMappingChange={handleBulkMappingChange}
                 saveMappingMatrix={saveMappingMatrix}
                 readOnly={isReadOnly}
               />

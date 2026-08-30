@@ -80,13 +80,22 @@ const addRoleScopingColumns = async () => {
     SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'teachers' AND COLUMN_NAME = 'role'
   `);
+  // Extend ENUM whenever a new value is missing — checked individually so re-runs are safe.
   if (roleColumn && !roleColumn.COLUMN_TYPE.includes('School Admin')) {
     await pool.query(`
       ALTER TABLE teachers
-      MODIFY COLUMN role ENUM('Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin')
+      MODIFY COLUMN role ENUM('Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin', 'Moderator')
+      NOT NULL DEFAULT 'Viewer'
+    `);
+  } else if (roleColumn && !roleColumn.COLUMN_TYPE.includes('Moderator')) {
+    // Already has School Admin / Department Admin — just add Moderator
+    await pool.query(`
+      ALTER TABLE teachers
+      MODIFY COLUMN role ENUM('Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin', 'Moderator')
       NOT NULL DEFAULT 'Viewer'
     `);
   }
+
 
   // FKs added only once the referenced tables exist (schools/departments are created by
   // createUniversityTables(), which server.js already runs before this function).

@@ -1,9 +1,29 @@
 const pool = require('../config/db');
 
 /**
+ * ADMIN_ROLES — roles that are granted full, unscoped access to user management.
+ * Used exclusively on the /auth/admin/* routes.
+ */
+const ADMIN_ROLES = ['Admin'];
+
+/**
+ * MODERATOR_ROLES — roles that can manage academic structures, courses, students,
+ * program outcomes, and OBE dashboards but CANNOT access user management or
+ * global system settings. The Moderator role is intended for HOS / HOD level users.
+ */
+const MODERATOR_ROLES = ['Admin', 'Moderator', 'School Admin', 'Department Admin'];
+
+/**
+ * ACADEMIC_WRITE_ROLES — a convenience alias that includes Moderator alongside the
+ * scoped-admin roles. Routes that previously listed only School Admin / Department Admin
+ * should use this set so that Moderator also gets access.
+ */
+const ACADEMIC_WRITE_ROLES = ['Admin', 'Moderator', 'School Admin', 'Department Admin'];
+
+/**
  * authorizeRoles(...allowedRoles)
  * A simple role-level gate. Reads req.user.role from the JWT (set by authMiddleware).
- * Usage: router.post('/some-route', protect, authorizeRoles('Admin', 'Examination Team'), handler)
+ * Usage: router.post('/some-route', protect, authorizeRoles('Admin', 'Moderator'), handler)
  */
 const authorizeRoles = (...allowedRoles) => (req, res, next) => {
   if (!req.user || !allowedRoles.includes(req.user.role)) {
@@ -20,15 +40,15 @@ const authorizeRoles = (...allowedRoles) => (req, res, next) => {
  * Fine-grained ownership/assignment guard for course-level routes.
  *
  * Access rules:
- *  - Admin / Examination Team: always allowed (bypass ownership check).
+ *  - Admin / Moderator / Examination Team: always allowed (bypass ownership check).
+ *    Moderator can manage any course so that HOS/HOD can assign teachers, view marks,
+ *    configure courses, etc. without being individually assigned.
  *  - Teacher: allowed if they are the course creator (teacher_id) or assigned as 'Teacher'.
  *  - Viewer: allowed if they are assigned as 'Viewer' (read-only routes only).
  *
  * requiredAssignedRoles controls which assignment levels are enough for non-Admin / non-ExamTeam users.
  * e.g. checkCoursePermission(['Teacher']) blocks Viewers from write routes.
  *      checkCoursePermission(['Teacher', 'Viewer']) allows both on read routes.
- *
- * Usage: router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), handler)
  */
 const checkCoursePermission = (requiredAssignedRoles = ['Teacher', 'Viewer']) => async (req, res, next) => {
   try {
@@ -40,8 +60,8 @@ const checkCoursePermission = (requiredAssignedRoles = ['Teacher', 'Viewer']) =>
       return res.status(400).json({ success: false, message: 'Course ID is required.' });
     }
 
-    // Admins and Examination Team bypass all ownership checks
-    if (userRole === 'Admin' || userRole === 'Examination Team') {
+    // Admins, Moderators, and Examination Team bypass all ownership checks
+    if (userRole === 'Admin' || userRole === 'Moderator' || userRole === 'Examination Team') {
       return next();
     }
 
@@ -82,4 +102,4 @@ const checkCoursePermission = (requiredAssignedRoles = ['Teacher', 'Viewer']) =>
   }
 };
 
-module.exports = { authorizeRoles, checkCoursePermission };
+module.exports = { authorizeRoles, checkCoursePermission, ADMIN_ROLES, MODERATOR_ROLES, ACADEMIC_WRITE_ROLES };

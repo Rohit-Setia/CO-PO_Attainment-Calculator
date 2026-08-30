@@ -66,7 +66,7 @@ router.put(
   [
     body('role')
       .optional()
-      .isIn(['Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin'])
+      .isIn(['Admin', 'Examination Team', 'Teacher', 'Viewer', 'School Admin', 'Department Admin', 'Moderator'])
       .withMessage('Invalid role value'),
     body('is_active')
       .optional()

@@ -8,6 +8,7 @@ const { getConfig, getCoPoValuesForCourse } = require('../models/mappingModel');
 const { getCoMarksForCourse } = require('../models/marksModel');
 const { getActiveOutcomes } = require('../models/courseOutcomeModel');
 const { buildCourseAttainmentSheet, buildCoPoAttainmentSheet } = require('../utils/excelHelpers');
+const { buildAttainmentChartBuffers } = require('../utils/chartGenerator');
 const pool = require('../config/db');
 
 // GET /api/courses/:id/export-excel — all course members (Teacher/Viewer/Admin/Exam Team) can export
@@ -44,6 +45,51 @@ router.get('/courses/:id/export-excel', protect, checkCoursePermission(['Teacher
     const ws2 = workbook.addWorksheet('CO-PO Attainment');
     buildCoPoAttainmentSheet(ws2, course, config, courseOutcomes, coPoValues, mttStudents, ettStudents, overallDirectCellIdx);
 
+    // SHEET 3: Attainment Charts (SVG bar charts embedded as images)
+    try {
+      const { coChartBuffer, poChartBuffer } = buildAttainmentChartBuffers({
+        courseOutcomes, mttStudents, ettStudents, config, coPoValues,
+      });
+
+      if (coChartBuffer || poChartBuffer) {
+        const ws3 = workbook.addWorksheet('Charts');
+        ws3.getCell('A1').value = 'ATTAINMENT CHARTS';
+        ws3.getCell('A1').font = { bold: true, size: 14, name: 'Calibri' };
+        ws3.getCell('A2').value = `${course.subject_name} (${course.course_code}) — Semester ${course.semester} ${course.academic_year}`;
+        ws3.getCell('A2').font = { size: 11, name: 'Calibri', color: { argb: 'FF555555' } };
+
+        let imageRow = 4;
+
+        if (coChartBuffer) {
+          ws3.getCell(`A${imageRow}`).value = 'CO Direct Attainment Levels (Combined MTT + ETT):';
+          ws3.getCell(`A${imageRow}`).font = { bold: true, size: 10 };
+          imageRow++;
+
+          const coImageId = workbook.addImage({ buffer: coChartBuffer, extension: 'svg' });
+          ws3.addImage(coImageId, {
+            tl: { col: 0, row: imageRow },
+            ext: { width: 600, height: 300 },
+          });
+          imageRow += 17; // ~300px / ~18px per row
+        }
+
+        if (poChartBuffer) {
+          ws3.getCell(`A${imageRow}`).value = 'PO / PSO Attainment Levels:';
+          ws3.getCell(`A${imageRow}`).font = { bold: true, size: 10 };
+          imageRow++;
+
+          const poImageId = workbook.addImage({ buffer: poChartBuffer, extension: 'svg' });
+          ws3.addImage(poImageId, {
+            tl: { col: 0, row: imageRow },
+            ext: { width: 700, height: 300 },
+          });
+        }
+      }
+    } catch (chartErr) {
+      // Chart generation is best-effort — don't fail the export if charts error
+      console.error('[export-excel] Chart generation failed (non-fatal):', chartErr.message);
+    }
+
     // Set headers and filename
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -58,3 +104,4 @@ router.get('/courses/:id/export-excel', protect, checkCoursePermission(['Teacher
 });
 
 module.exports = router;
+

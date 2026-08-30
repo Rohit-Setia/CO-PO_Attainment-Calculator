@@ -11,7 +11,7 @@ const {
 const {
   createStudent, updateStudent, getStudentById, listStudents, mapStudentToClass,
   findStudentByAnyIdentifier, findStudentInContext, getStudentsByContext,
-  enrollStudentInAllContextCourses,
+  enrollStudentInAllContextCourses, deleteStudentById,
 } = require('../models/studentMasterModel');
 const { getCourseById } = require('../models/courseModel');
 const { getProgramByIdWithContext } = require('../models/academicModel');
@@ -136,7 +136,7 @@ router.get('/students', protect, async (req, res, next) => {
 // Phase 10 — create a student with its academic context. The Student belongs to a Program +
 // Session + Semester (exactly like a Course). The same academic context determines which
 // courses the student automatically appears in — no per-course student list duplication.
-router.post('/students', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
+router.post('/students', protect, authorizeRoles('Admin', 'Moderator', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { registrationNumber, rollNumber, name, email, phone, status, programId, sessionId, semester } = req.body;
     if (!registrationNumber || !name) {
@@ -197,7 +197,7 @@ router.post('/students', protect, authorizeRoles('Admin', 'Examination Team', 'T
   } catch (err) { next(err); }
 });
 
-router.put('/students/:id', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
+router.put('/students/:id', protect, authorizeRoles('Admin', 'Moderator', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { registrationNumber, rollNumber, name, email, phone, status, programId, sessionId, semester } = req.body;
     if (programId || sessionId || (semester !== undefined && semester !== null && semester !== '')) {
@@ -372,7 +372,7 @@ router.post('/courses/:id/students/upload', protect, async (req, res, next) => {
 
 // Map a student into an academic class (Phase 3J workflow).
 // Body: { classId, programId?, sessionId?, semester?, section? }
-router.post('/students/:id/map', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
+router.post('/students/:id/map', protect, authorizeRoles('Admin', 'Moderator', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { classId, programId, sessionId, semester, section } = req.body;
     if (!classId) return res.status(400).json({ success: false, message: 'classId is required.' });
@@ -393,7 +393,7 @@ router.get('/classes/:id/students', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/classes/:id/students', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
+router.post('/classes/:id/students', protect, authorizeRoles('Admin', 'Moderator', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const { studentIds } = req.body;
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
@@ -404,11 +404,34 @@ router.post('/classes/:id/students', protect, authorizeRoles('Admin', 'Examinati
   } catch (err) { next(err); }
 });
 
-router.delete('/classes/:id/students/:studentId', protect, authorizeRoles('Admin', 'Examination Team', 'Teacher'), async (req, res, next) => {
+router.delete('/classes/:id/students/:studentId', protect, authorizeRoles('Admin', 'Moderator', 'Examination Team', 'Teacher'), async (req, res, next) => {
   try {
     const removed = await removeStudentFromClass(req.params.id, req.params.studentId);
     if (!removed) return res.status(404).json({ success: false, message: 'Student not in class.' });
     res.json({ success: true, message: 'Student removed from class.' });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/students/:id — permanently removes a student and all associated records.
+// Only Admin and Moderator may delete students; Teachers can unenroll but not delete.
+router.delete('/students/:id', protect, authorizeRoles('Admin', 'Moderator'), async (req, res, next) => {
+  try {
+    const studentId = parseInt(req.params.id, 10);
+    if (!studentId) return res.status(400).json({ success: false, message: 'Invalid student ID.' });
+
+    const student = await getStudentById(studentId);
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
+
+    const deleted = await deleteStudentById(studentId);
+    if (!deleted) return res.status(500).json({ success: false, message: 'Failed to delete student.' });
+
+    await logAction({
+      actorUserId: req.user.id, actorName: req.user.email,
+      action: 'delete', entityType: 'student', entityId: studentId,
+      details: { name: student.name, registrationNumber: student.registration_number },
+    });
+
+    res.json({ success: true, message: `Student "${student.name}" (${student.registration_number}) has been permanently deleted.` });
   } catch (err) { next(err); }
 });
 
