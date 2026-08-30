@@ -230,10 +230,15 @@ const seedDefaultOutcomeVersions = async () => {
 
 // Adds the additive target columns. Never touches existing data.
 const ensureOBETargetColumns = async () => {
-  await ensureColumn('program_outcomes', 'target', 'DECIMAL(5,2) DEFAULT NULL AFTER version_label');
+  await ensureColumn('program_outcomes', 'target', 'DECIMAL(5,2) DEFAULT 2.00 AFTER version_label');
   await ensureColumn('program_outcomes', 'outcome_version_id', 'INT DEFAULT NULL AFTER program_id');
   await ensureColumn('course_outcomes', 'target_percent', 'DECIMAL(5,2) DEFAULT 60.00 AFTER max_external');
   await ensureColumn('course_outcomes', 'outcome_version_id', 'INT DEFAULT NULL AFTER target_percent');
+  try {
+    await pool.query('UPDATE program_outcomes SET target = 2.00 WHERE target IS NULL');
+  } catch (err) {
+    // ignore if table not ready yet
+  }
 };
 
 const ensureOBESchema = async () => {
@@ -312,10 +317,10 @@ const getProgramDashboard = async (programId, filters = {}) => {
     psoCourseRows.push({ code: course.course_code, courseId: course.id, enrolledCount: row.enrolledCount, values: row.psoValues });
   }
 
-  // PO / PSO nodes — target comes from the program's outcome definitions when present.
+  // PO / PSO nodes — target comes from the program's outcome definitions when present, defaulting to 2.00.
   const poAttainment = (outcomeMap.PO || []).map((def) => {
     const agg = aggregateOutcomeAcrossCourses(poCourseRows, def.code.toLowerCase(), 'enrolledCount');
-    const target = def.target === null || def.target === undefined ? null : Number(def.target);
+    const target = def.target !== null && def.target !== undefined && def.target !== '' ? Number(def.target) : 2.00;
     return {
       id: def.id, code: def.code, title: def.title, description: def.description,
       attainment: agg.attainment,
@@ -329,7 +334,7 @@ const getProgramDashboard = async (programId, filters = {}) => {
 
   const psoAttainment = (outcomeMap.PSO || []).map((def) => {
     const agg = aggregateOutcomeAcrossCourses(psoCourseRows, def.code.toLowerCase(), 'enrolledCount');
-    const target = def.target === null || def.target === undefined ? null : Number(def.target);
+    const target = def.target !== null && def.target !== undefined && def.target !== '' ? Number(def.target) : 2.00;
     return {
       id: def.id, code: def.code, title: def.title, description: def.description,
       attainment: agg.attainment,
@@ -342,7 +347,9 @@ const getProgramDashboard = async (programId, filters = {}) => {
   });
 
   const outline = buildProgramOutlineNodes({
-    coNodes, poNodes: poAttainment, psoNodes: psoAttainment,
+    coNodes,
+    poNodes: poAttainment.filter((p) => p.mapped),
+    psoNodes: psoAttainment.filter((p) => p.mapped),
   });
 
   // Heatmap: rows are each course's COs, columns are the program's actual PO/PSO codes.
