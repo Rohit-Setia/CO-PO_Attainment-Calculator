@@ -48,13 +48,13 @@ const seedDefaultProgramOutcomes = async () => {
     if (existing[0].c > 0) continue;
     const rows = [];
     for (let i = 1; i <= 12; i += 1) {
-      rows.push(`(${program.id}, 'PO', 'PO${i}', NULL, NULL, ${i}, 1, 'current')`);
+      rows.push(`(${program.id}, 'PO', 'PO${i}', NULL, NULL, ${i}, 1, 'current', 2.00)`);
     }
     for (let i = 1; i <= 3; i += 1) {
-      rows.push(`(${program.id}, 'PSO', 'PSO${i}', NULL, NULL, ${i}, 1, 'current')`);
+      rows.push(`(${program.id}, 'PSO', 'PSO${i}', NULL, NULL, ${i}, 1, 'current', 2.00)`);
     }
     await pool.query(
-      `INSERT INTO program_outcomes (program_id, type, code, title, description, display_order, is_active, version_label)
+      `INSERT INTO program_outcomes (program_id, type, code, title, description, display_order, is_active, version_label, target)
        VALUES ${rows.join(', ')}`,
     );
   }

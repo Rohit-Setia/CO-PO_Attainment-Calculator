@@ -109,11 +109,11 @@ export default function ProgramOutcomeManagement() {
 
   const downloadTemplate = () => {
     const wb = XLSX.utils.book_new();
-    const headers = ['Code', 'Title', 'Description', 'Target (%)', 'Display Order', 'Active (1/0)'];
-    const example = [`${activeType}1`, `Example ${activeType} title`, 'Graduates will be able to…', 60, 1, 1];
+    const headers = ['Code', 'Title', 'Description', 'Target (0-3)', 'Display Order', 'Active (1/0)'];
+    const example = [`${activeType}1`, `Example ${activeType} title`, 'Graduates will be able to…', 2.0, 1, 1];
     const ws = XLSX.utils.aoa_to_sheet([headers, example]);
     // Set column widths
-    ws['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 50 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
+    ws['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, ws, `${activeType} Template`);
     XLSX.writeFile(wb, `${activeType}_import_template_${selectedProgram?.code || programId}.xlsx`);
   };
