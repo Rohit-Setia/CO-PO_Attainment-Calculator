@@ -40,6 +40,7 @@ const {
   replaceQuestionConfigs,
 } = require('../models/questionConfigModel');
 const { calculateCourseAttainment } = require('../utils/attainmentCalculator');
+const { distributeTotalMarksToCos, calculateExamTotalMax } = require('../utils/marksDistribution');
 const pool = require('../config/db');
 const { findUserByEmail } = require('../models/userModel');
 const { logAction } = require('../models/adminAuditModel');
@@ -722,8 +723,22 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
     }
 
     // Validate every mark before writing anything — a rejected row shouldn't leave a partial save.
-    for (const student of students) {
-      if (entryMode === 'question') {
+    if (entryMode === 'total') {
+      const totalMax = calculateExamTotalMax(outcomes, isInternal);
+      for (const student of students) {
+        const raw = student.totalMarks !== undefined ? student.totalMarks : student.total_marks;
+        if (raw !== '' && raw !== null && raw !== undefined) {
+          const val = parseFloat(raw);
+          if (isNaN(val) || val < 0 || val > totalMax) {
+            return res.status(400).json({
+              success: false,
+              message: `${student.name || student.roll || 'A student'}: Total mark (${raw}) must be between 0 and ${totalMax}.`,
+            });
+          }
+        }
+      }
+    } else if (entryMode === 'question') {
+      for (const student of students) {
         for (const [qcIdStr, mark] of Object.entries(student.questionMarks || {})) {
           const qc = questionConfigById.get(parseInt(qcIdStr, 10));
           if (!qc) continue; // stale/removed question — ignore rather than fail the whole save
@@ -735,7 +750,9 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
             });
           }
         }
-      } else {
+      }
+    } else {
+      for (const student of students) {
         for (const [coIdStr, mark] of Object.entries(student.coMarks || {})) {
           const co = outcomeById.get(parseInt(coIdStr, 10));
           if (!co) continue;
@@ -782,6 +799,17 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
           })
           .filter(Boolean);
         coMarksToSave = Array.from(perCoTotals.entries()).map(([co_id, marks]) => ({ co_id, marks }));
+      } else if (entryMode === 'total') {
+        const raw = student.totalMarks !== undefined ? student.totalMarks : student.total_marks;
+        const dist = distributeTotalMarksToCos({
+          totalMarks: raw || 0,
+          courseOutcomes: outcomes,
+          isInternal,
+        });
+        coMarksToSave = outcomes.map((co) => ({
+          co_id: co.id,
+          marks: dist.coMarks[co.id] ?? 0,
+        }));
       } else {
         coMarksToSave = outcomes.map((co) => ({
           co_id: co.id,
@@ -1258,23 +1286,51 @@ const validateImportPayload = async (course, examType, rows) => {
     // Validate every provided CO mark against the persisted maximum; blank stays missing (NOT zero)
     const cleanedCoMarks = {};
     let rowHasError = false;
-    for (const [coId, raw] of Object.entries(row.coMarks || {})) {
-      const co = outcomeById.get(String(coId));
-      if (!co) continue; // stale/unknown CO column — ignore
-      if (raw === '' || raw === null || raw === undefined) continue;
-      const val = Number(raw);
-      const max = parseFloat(isInternal ? co.max_internal : co.max_external);
-      if (Number.isNaN(val)) {
+
+    const hasSpecificCoMarks = Object.keys(row.coMarks || {}).length > 0 &&
+      Object.values(row.coMarks || {}).some((v) => v !== '' && v !== null && v !== undefined);
+
+    if (hasSpecificCoMarks) {
+      for (const [coId, raw] of Object.entries(row.coMarks || {})) {
+        const co = outcomeById.get(String(coId));
+        if (!co) continue; // stale/unknown CO column — ignore
+        if (raw === '' || raw === null || raw === undefined) continue;
+        const val = Number(raw);
+        const max = parseFloat(isInternal ? co.max_internal : co.max_external);
+        if (Number.isNaN(val)) {
+          rowHasError = true;
+          errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: `CO${co.co_number}`, problem: `Value "${raw}" is not a number.` });
+        } else if (val < 0) {
+          rowHasError = true;
+          errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: `CO${co.co_number}`, problem: 'Marks cannot be negative.' });
+        } else if (max > 0 && val > max) {
+          rowHasError = true;
+          errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: `CO${co.co_number}`, problem: `Maximum ${examType} mark for CO${co.co_number} is ${max}.` });
+        } else {
+          cleanedCoMarks[co.id] = val;
+        }
+      }
+    } else if (row.totalMarks !== undefined && row.totalMarks !== null && row.totalMarks !== '') {
+      // Auto-distribute total marks based on CO weightage
+      const totalMax = calculateExamTotalMax(outcomes, isInternal);
+      const rawTotal = Number(row.totalMarks);
+      if (Number.isNaN(rawTotal)) {
         rowHasError = true;
-        errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: `CO${co.co_number}`, problem: `Value "${raw}" is not a number.` });
-      } else if (val < 0) {
+        errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: 'Total Marks', problem: `Value "${row.totalMarks}" is not a number.` });
+      } else if (rawTotal < 0) {
         rowHasError = true;
-        errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: `CO${co.co_number}`, problem: 'Marks cannot be negative.' });
-      } else if (max > 0 && val > max) {
+        errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: 'Total Marks', problem: 'Total marks cannot be negative.' });
+      } else if (totalMax > 0 && rawTotal > totalMax) {
         rowHasError = true;
-        errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: `CO${co.co_number}`, problem: `Maximum ${examType} mark for CO${co.co_number} is ${max}.` });
+        errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: 'Total Marks', problem: `Total marks (${rawTotal}) exceeds exam maximum of ${totalMax}.` });
       } else {
-        cleanedCoMarks[co.id] = val;
+        const dist = distributeTotalMarksToCos({ totalMarks: rawTotal, courseOutcomes: outcomes, isInternal });
+        if (dist.error) {
+          rowHasError = true;
+          errors.push({ row: rowNo, regNo: row.regNo, name: student.name, column: 'Total Marks', problem: dist.error });
+        } else {
+          Object.assign(cleanedCoMarks, dist.coMarks);
+        }
       }
     }
     if (rowHasError) return;

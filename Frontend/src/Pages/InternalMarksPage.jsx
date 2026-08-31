@@ -401,11 +401,18 @@ export default function InternalMarksPage() {
     }
     // Map CO columns by header "CO{n} (max M)" to the course's active outcomes.
     const coCols = [];
+    let totalColIdx = -1;
     grid[headerIdx].forEach((cell, colIdx) => {
-      const m = String(cell || '').match(/^CO(\d+)\s*\(max/);
-      if (!m) return;
-      const co = outcomes.find((c) => c.co_number === parseInt(m[1], 10));
-      if (co) coCols.push({ coId: co.id, colIdx });
+      const cellStr = String(cell || '').trim();
+      const m = cellStr.match(/^CO(\d+)\s*\(max/i);
+      if (m) {
+        const co = outcomes.find((c) => c.co_number === parseInt(m[1], 10));
+        if (co) coCols.push({ coId: co.id, colIdx });
+      }
+      const normH = cellStr.toLowerCase().replace(/[\s._-]/g, '');
+      if (['total', 'totalmarks', 'marks', 'grandtotal', 'score'].includes(normH)) {
+        totalColIdx = colIdx;
+      }
     });
     // Build rows; blank cells stay blank (never coerced to zero).
     const rows = [];
@@ -418,11 +425,17 @@ export default function InternalMarksPage() {
         const raw = row?.[colIdx];
         coMarks[String(coId)] = raw === null || raw === undefined ? '' : raw;
       });
+      let totalMarks = undefined;
+      if (totalColIdx !== -1) {
+        const rawT = row?.[totalColIdx];
+        if (rawT !== null && rawT !== undefined && rawT !== '') totalMarks = rawT;
+      }
       rows.push({
         rowNumber: i + 1,
         regNo,
         name: row?.[3] ? String(row[3]).trim() : '',
         coMarks,
+        totalMarks,
       });
     }
     if (rows.length === 0) {

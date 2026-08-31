@@ -1,18 +1,19 @@
-import { Upload, Users, Loader2, Save, Plus, Info } from "lucide-react";
+import { Upload, Users, Loader2, Save, Plus, Info, Sparkles, Scale } from "lucide-react";
 import StudentTable from "../StudentTable";
 import QuestionWiseTable from "../QuestionWiseTable";
 import QuestionConfigPanel from "./QuestionConfigPanel";
 import EmptyState from "../ui/EmptyState";
+import { getCoWeightageBreakdown, calculateExamTotalMax } from "../../utils/marksDistribution";
 
 const segmentBtn = (active) =>
-  `rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+  `rounded-xl border px-3 py-2 text-xs font-semibold transition text-center ${
     active
       ? "border-primary bg-primary text-primary-foreground"
       : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
   }`;
 
 export default function MarksTab({
-  courseOutcomes,
+  courseOutcomes = [],
   students,
   activeExamType,
   setActiveExamType,
@@ -30,6 +31,7 @@ export default function MarksTab({
   saving,
   saveMarksList,
   updateMark,
+  updateTotalMark,
   updateStudentInfo,
   removeStudent,
   addStudentRow,
@@ -40,6 +42,8 @@ export default function MarksTab({
 }) {
   const isInternal = activeExamType === 'MTT';
   const contextStudents = hierarchy?.linked && studentsAutoLoaded;
+  const weightages = getCoWeightageBreakdown(courseOutcomes, isInternal);
+  const examTotalMax = calculateExamTotalMax(courseOutcomes, isInternal);
 
   return (
     <div className="space-y-6">
@@ -63,12 +67,15 @@ export default function MarksTab({
           <h4 className="border-b border-border pb-2 text-base font-bold text-foreground">
             Data Entry Mode
           </h4>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button type="button" onClick={() => setEntryMode("co")} className={segmentBtn(entryMode === "co")}>
               Direct CO-Wise
             </button>
             <button type="button" onClick={() => setEntryMode("question")} className={segmentBtn(entryMode === "question")}>
               Question-Wise
+            </button>
+            <button type="button" onClick={() => setEntryMode("total")} className={segmentBtn(entryMode === "total")}>
+              Total Marks (Auto)
             </button>
           </div>
         </div>
@@ -87,6 +94,39 @@ export default function MarksTab({
           maxAllowed={maxQuestionsAllowed}
           readOnly={readOnly}
         />
+      )}
+
+      {entryMode === "total" && (
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-primary/10 p-2.5 text-primary">
+                <Scale className="h-5 w-5" />
+              </div>
+              <div>
+                <h5 className="flex items-center gap-1.5 font-bold text-foreground text-sm">
+                  <span>Proportional CO Weightage Distribution</span>
+                  <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                    {activeExamType} Total Max: {examTotalMax} Marks
+                  </span>
+                </h5>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Entering each student's Total Marks in the table below automatically distributes marks to active Course Outcomes in exact proportion to their configured weightages:
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t border-primary/10">
+            {weightages.map((w) => (
+              <div key={w.coId} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs shadow-sm">
+                <span className="font-bold text-foreground">CO{w.coNumber}</span>
+                <span className="text-muted-foreground">({w.maxMarks} max)</span>
+                <span className="font-semibold text-primary">→ {w.percentage}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Main spreadsheet interface card */}
@@ -108,6 +148,8 @@ export default function MarksTab({
             <p className="mt-1 text-xs text-muted-foreground">
               {entryMode === 'question'
                 ? 'Marks are entered per question below, using the Question Paper Configuration above.'
+                : entryMode === 'total'
+                ? 'Enter each student\'s total exam score in the Total column below — CO marks will auto-distribute proportionally based on weightage.'
                 : 'Enter each student\'s total marks directly per Course Outcome.'}
             </p>
           </div>
@@ -169,11 +211,13 @@ export default function MarksTab({
             <StudentTable
               students={students}
               updateMark={updateMark}
+              updateTotalMark={updateTotalMark}
               updateStudentInfo={updateStudentInfo}
               removeStudent={removeStudent}
               courseOutcomes={courseOutcomes}
               isInternal={isInternal}
               readOnly={readOnly}
+              entryMode={entryMode}
             />
           </div>
         )}

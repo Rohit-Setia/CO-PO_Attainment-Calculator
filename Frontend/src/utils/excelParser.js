@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx"
+import { distributeTotalMarksToCos, calculateExamTotalMax } from "./marksDistribution"
 
 /* =========================
    NORMALIZE HEADER (SAFE)
@@ -13,6 +14,7 @@ const detectHeaderRows = (rows) => {
   let nameRow = -1
   let coRow = -1
   let qRow = -1
+  let totalRow = -1
 
   rows.forEach((row, r) => {
     if (!Array.isArray(row)) return
@@ -28,20 +30,24 @@ const detectHeaderRows = (rows) => {
       if (/^(?:q|question)\d+(?:%)?$/.test(h)) {
         qRow = r
       }
+      if (["total", "totalmarks", "marks", "grandtotal", "score"].includes(h)) {
+        totalRow = r
+      }
     })
   })
 
   if (nameRow === -1) {
     if (coRow !== -1) nameRow = coRow
     else if (qRow !== -1) nameRow = qRow
+    else if (totalRow !== -1) nameRow = totalRow
     else return null
   }
 
-  if (coRow === -1 && qRow === -1) {
+  if (coRow === -1 && qRow === -1 && totalRow === -1) {
     return null
   }
 
-  return { nameRow, coRow, qRow }
+  return { nameRow, coRow, qRow, totalRow }
 }
 
 /* =========================================
@@ -147,14 +153,16 @@ export const parseExcel = (
         return
       }
 
-      const startRow = Math.max(header.nameRow, header.coRow, header.qRow) + 1
-      /* ---- FIND NAME / REG ---- */
+      const startRow = Math.max(header.nameRow, header.coRow, header.qRow, header.totalRow ?? -1) + 1
+      /* ---- FIND NAME / REG / TOTAL ---- */
       const colMap = {}
-      rows[header.nameRow].forEach((cell, idx) => {
+      const headerRowIdx = header.nameRow !== -1 ? header.nameRow : (header.totalRow !== -1 ? header.totalRow : 0)
+      rows[headerRowIdx].forEach((cell, idx) => {
         const h = norm(cell)
         if (h.includes("sr")) colMap.sr = idx
         else if (h.includes("reg")) colMap.roll = idx
         else if (h === "name" || h === "studentname") colMap.name = idx
+        else if (["total", "totalmarks", "marks", "grandtotal", "score"].includes(h)) colMap.total = idx
       })
       if (colMap.name == null) {
         setStatus("❌ Name column not found")
@@ -193,6 +201,10 @@ export const parseExcel = (
           coCols[co.id] = pickBestColumn(rows, candidates[co.id], startRow, maxMark)
         })
       }
+
+      const hasCoCols = !hasQuestionConfig && Object.keys(coCols).length > 0
+      const isTotalMarksOnly = !hasQuestionConfig && !hasCoCols && colMap.total !== undefined
+      const totalExamMax = calculateExamTotalMax(courseOutcomes, isInternal)
 
       /* ---- READ STUDENTS ---- */
       const dataRows = rows.slice(startRow)
@@ -236,6 +248,17 @@ export const parseExcel = (
             })
             student.totalMarks = total
             student.coMarks = perCoTotals
+          } else if (isTotalMarksOnly) {
+            const raw = r[colMap.total]
+            let val = Number(raw)
+            const isInvalid = raw !== "" && (isNaN(val) || val < 0 || (totalExamMax > 0 && val > totalExamMax))
+            if (isInvalid) {
+              issues.push(`${rowLabel}: Total mark "${raw}" exceeds exam max (${totalExamMax}) or is invalid — set to 0.`)
+            }
+            if (isNaN(val) || val < 0 || (totalExamMax > 0 && val > totalExamMax)) val = 0
+            student.totalMarks = val
+            const dist = distributeTotalMarksToCos({ totalMarks: val, courseOutcomes, isInternal })
+            student.coMarks = dist.coMarks || {}
           } else {
             let coTotal = 0
             courseOutcomes.forEach((co) => {
@@ -276,7 +299,9 @@ export const parseExcel = (
       setStatus(
         issues.length > 0
           ? `⚠️ Loaded ${students.length} students with ${issues.length} issue(s) — review before saving.`
-          : `✅ Loaded ${students.length} students`
+          : isTotalMarksOnly
+            ? `✅ Loaded ${students.length} students (Total Marks auto-distributed into COs by weightage)`
+            : `✅ Loaded ${students.length} students`
       )
     } catch (err) {
       console.error(err)

@@ -16,6 +16,7 @@ import {
   Share2, AlertTriangle, X, Loader2,
 } from 'lucide-react';
 import { parseExcel, inferQuestionConfigsFromExcel } from '../utils/excelParser';
+import { distributeTotalMarksToCos } from '../utils/marksDistribution';
 import { useAuth } from '../context/AuthContext';
 import { usePageHeader } from '../context/PageHeaderContext';
 
@@ -241,6 +242,30 @@ export default function CourseWorkspace() {
       const marksMap = { ...s[field], [key]: value === '' ? '' : parseFloat(value) || 0 };
       s[field] = marksMap;
       s.totalMarks = Object.values(marksMap).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+      updated[index] = s;
+      return updated;
+    });
+  };
+
+  const updateTotalMark = (index, value) => {
+    setStudents((prev) => {
+      const updated = [...prev];
+      const s = { ...updated[index] };
+      const rawVal = value === '' ? '' : parseFloat(value);
+      s.totalMarks = rawVal;
+      if (rawVal === '' || isNaN(rawVal)) {
+        const emptyCos = {};
+        (courseOutcomes || []).forEach((co) => { emptyCos[co.id] = ''; });
+        s.coMarks = emptyCos;
+      } else {
+        const isInternal = activeExamType === 'MTT';
+        const dist = distributeTotalMarksToCos({
+          totalMarks: rawVal,
+          courseOutcomes: courseOutcomes || [],
+          isInternal,
+        });
+        s.coMarks = dist.coMarks || {};
+      }
       updated[index] = s;
       return updated;
     });
@@ -673,6 +698,7 @@ export default function CourseWorkspace() {
                 saving={saving}
                 saveMarksList={saveMarksList}
                 updateMark={updateMark}
+                updateTotalMark={updateTotalMark}
                 updateStudentInfo={updateStudentInfo}
                 removeStudent={removeStudent}
                 addStudentRow={addStudentRow}
