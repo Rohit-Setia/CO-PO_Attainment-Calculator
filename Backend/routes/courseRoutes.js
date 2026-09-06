@@ -24,7 +24,9 @@ const {
   saveStudentMark,
   saveStudentCoMarks,
   saveStudentQuestionMarks,
-  deleteMarksByCourse,
+  getStudentMarkRow,
+  getCoMarksForStudentMark,
+  getQuestionMarksForStudentMark,
 } = require('../models/marksModel');
 const {
   MAX_COS_PER_COURSE,
@@ -699,7 +701,13 @@ router.get('/courses/:id/marks', protect, checkCoursePermission(['Teacher', 'Vie
 // In 'question' mode, per-CO totals are always derived server-side by summing each student's
 // question marks against the persisted question->CO mapping — never trusted from the client and
 // never independently editable, so CO aggregation can't drift from the actual question paper.
+//
+// SAVE SEMANTICS (data-loss fix): this endpoint UPSERTS. It only updates/creates the submitted
+// students and NEVER deletes marks belonging to other students. Blank/missing marks are treated
+// as "no change" for existing rows (unassessed ≠ 0) — previously-saved values are preserved. The
+// whole save runs inside a single DB transaction, so a mid-save failure rolls back cleanly.
 router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+  const connection = await pool.getConnection();
   try {
     const course = await loadCourseOr404(req, res);
     if (!course) return;
@@ -722,7 +730,10 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
       questionConfigById = new Map(questions.map((q) => [q.id, q]));
     }
 
-    // Validate every mark before writing anything — a rejected row shouldn't leave a partial save.
+  const isBlank = (v) => v === '' || v === null || v === undefined;
+
+  // Validate every submitted (non-blank) mark before writing anything — a rejected row
+  // shouldn't leave a partial save. Blank marks are skipped (they mean "no change").
     if (entryMode === 'total') {
       const totalMax = calculateExamTotalMax(outcomes, isInternal);
       for (const student of students) {
@@ -740,10 +751,11 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
     } else if (entryMode === 'question') {
       for (const student of students) {
         for (const [qcIdStr, mark] of Object.entries(student.questionMarks || {})) {
+          if (isBlank(mark)) continue;
           const qc = questionConfigById.get(parseInt(qcIdStr, 10));
           if (!qc) continue; // stale/removed question — ignore rather than fail the whole save
-          const val = parseFloat(mark) || 0;
-          if (val < 0 || val > parseFloat(qc.max_marks)) {
+          const val = Number(mark);
+          if (Number.isNaN(val) || val < 0 || val > parseFloat(qc.max_marks)) {
             return res.status(400).json({
               success: false,
               message: `${student.name || student.roll || 'A student'}: Q${qc.question_number} mark (${val}) must be between 0 and ${qc.max_marks}.`,
@@ -754,11 +766,12 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
     } else {
       for (const student of students) {
         for (const [coIdStr, mark] of Object.entries(student.coMarks || {})) {
+          if (isBlank(mark)) continue;
           const co = outcomeById.get(parseInt(coIdStr, 10));
           if (!co) continue;
           const maxMarks = parseFloat(isInternal ? co.max_internal : co.max_external);
-          const val = parseFloat(mark) || 0;
-          if (val < 0 || val > maxMarks) {
+          const val = Number(mark);
+          if (Number.isNaN(val) || val < 0 || val > maxMarks) {
             return res.status(400).json({
               success: false,
               message: `${student.name || student.roll || 'A student'}: CO${co.co_number} mark (${val}) must be between 0 and ${maxMarks}.`,
@@ -767,8 +780,6 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
         }
       }
     }
-
-    await deleteMarksByCourse(course.id, examType);
 
     // Phase 11 — resolve Student Master IDs so saved marks reference the actual student
     // record (stable FK), not just the reg_no text. Unknown/legacy rows keep NULL student_id.
@@ -782,23 +793,60 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
       enrolledStudents.map((s) => [String(s.registration_number).toLowerCase(), s.id]),
     );
 
+    await connection.beginTransaction();
+
+    // eslint-disable-next-line no-restricted-syntax
     for (const student of students) {
-      let coMarksToSave;
-      let questionMarksToSave = [];
+      const regNo = String(student.roll || student.reg_no || '').trim();
 
       if (entryMode === 'question') {
+        // Collect only provided (non-blank) question marks for this student.
+        const provided = [];
+        for (const [qcIdStr, mark] of Object.entries(student.questionMarks || {})) {
+          if (isBlank(mark)) continue;
+          const qc = questionConfigById.get(parseInt(qcIdStr, 10));
+          if (!qc) continue;
+          provided.push({ qc, marks: Number(mark) });
+        }
+
+        // Upsert the student row (INSERT ... ON DUPLICATE KEY UPDATE on course+reg+exam).
+        // eslint-disable-next-line no-await-in-loop
+        const studentMarkId = await saveStudentMark({
+          courseId: course.id,
+          name: student.name || '',
+          regNo,
+          examType,
+          totalMarks: 0, // recomputed below from the merged question-mark set
+          questionMarks: null, // superseded by student_question_marks
+          studentId: studentIdByReg.get(regNo.toLowerCase()) || null,
+        }, connection);
+
+        if (provided.length > 0) {
+          // eslint-disable-next-line no-await-in-loop
+          await saveStudentQuestionMarks(
+            studentMarkId,
+            provided.map((p) => ({ question_config_id: p.qc.id, marks: p.marks })),
+            connection,
+          );
+        }
+
+        // Recompute per-CO totals from the FULL merged set (existing + newly provided) so
+        // questions not included in this save keep their previously saved marks.
+        // eslint-disable-next-line no-await-in-loop
+        const mergedQuestions = await getQuestionMarksForStudentMark(studentMarkId, connection);
+        provided.forEach((p) => { mergedQuestions[p.qc.id] = p.marks; });
+
         const perCoTotals = new Map();
         outcomes.forEach((o) => perCoTotals.set(o.id, 0));
-        questionMarksToSave = Object.entries(student.questionMarks || {})
-          .map(([qcIdStr, mark]) => {
-            const qc = questionConfigById.get(parseInt(qcIdStr, 10));
-            if (!qc) return null;
-            const val = parseFloat(mark) || 0;
-            perCoTotals.set(qc.co_id, (perCoTotals.get(qc.co_id) || 0) + val);
-            return { question_config_id: qc.id, marks: val };
-          })
-          .filter(Boolean);
+        Object.entries(mergedQuestions).forEach(([qcIdStr, marks]) => {
+          const qc = questionConfigById.get(parseInt(qcIdStr, 10));
+          if (!qc) return;
+          perCoTotals.set(qc.co_id, (perCoTotals.get(qc.co_id) || 0) + Number(marks));
+        });
         coMarksToSave = Array.from(perCoTotals.entries()).map(([co_id, marks]) => ({ co_id, marks }));
+  // Persist the derived per-CO totals (source of truth for attainment in question mode).
+  // eslint-disable-next-line no-await-in-loop
+  await saveStudentCoMarks(studentMarkId, coMarksToSave, connection);
       } else if (entryMode === 'total') {
         const raw = student.totalMarks !== undefined ? student.totalMarks : student.total_marks;
         const dist = distributeTotalMarksToCos({
@@ -811,45 +859,74 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
           marks: dist.coMarks[co.id] ?? 0,
         }));
       } else {
-        coMarksToSave = outcomes.map((co) => ({
-          co_id: co.id,
-          marks: parseFloat(student.coMarks?.[co.id]) || 0,
-        }));
+        // Collect only provided (non-blank) CO marks for this student.
+        const provided = [];
+        for (const [coIdStr, mark] of Object.entries(student.coMarks || {})) {
+          if (isBlank(mark)) continue;
+          const co = outcomeById.get(parseInt(coIdStr, 10));
+          if (!co) continue;
+          provided.push({ co, marks: Number(mark) });
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        const studentMarkId = await saveStudentMark({
+          courseId: course.id,
+          name: student.name || '',
+          regNo,
+          examType,
+          totalMarks: 0, // recomputed below from the merged CO-mark set
+          questionMarks: null,
+          studentId: studentIdByReg.get(regNo.toLowerCase()) || null,
+        }, connection);
+
+        if (provided.length > 0) {
+          // eslint-disable-next-line no-await-in-loop
+          await saveStudentCoMarks(
+            studentMarkId,
+            provided.map((p) => ({ co_id: p.co.id, marks: p.marks })),
+            connection,
+          );
+        }
+
+        // Merge existing CO marks with the newly provided ones so blank cells on a saved
+        // student do NOT erase previously saved marks for other COs.
+        // eslint-disable-next-line no-await-in-loop
+        const mergedCoMarks = await getCoMarksForStudentMark(studentMarkId, connection);
+        provided.forEach((p) => { mergedCoMarks[p.co.id] = p.marks; });
+        coMarksToSave = outcomes.map((o) => ({ co_id: o.id, marks: mergedCoMarks[o.id] ?? 0 }));
       }
 
-      const totalMarks = coMarksToSave.reduce((sum, c) => sum + c.marks, 0);
+      const totalMarks = coMarksToSave.reduce((sum, c) => sum + Number(c.marks || 0), 0);
 
       // Best-effort mirror into the legacy co1-6 columns for anyone still reading raw SQL —
-      // purely cosmetic, has zero effect on attainment/marks-read, which use the tables below.
+      // purely cosmetic, has zero effect on attainment/marks-read, which use the tables above.
       const legacyCoValues = {};
       coMarksToSave.forEach((c) => {
         const outcome = outcomeById.get(c.co_id);
         if (outcome && outcome.co_number <= 6) legacyCoValues[`co${outcome.co_number}`] = c.marks;
       });
 
-      // eslint-disable-next-line no-await-in-loop -- sequential to keep each student's writes atomic-ish
-      const studentMarkId = await saveStudentMark({
+      // Second upsert keeps total_marks + legacy mirror columns in sync with the merged set.
+      // eslint-disable-next-line no-await-in-loop
+      await saveStudentMark({
         courseId: course.id,
-        name: student.name,
-        regNo: student.roll || student.reg_no,
+        name: student.name || '',
+        regNo,
         examType,
         ...legacyCoValues,
         totalMarks,
-        questionMarks: null, // superseded by student_question_marks
-        studentId: studentIdByReg.get(String(student.roll || student.reg_no).toLowerCase()) || null,
-      });
-
-      // eslint-disable-next-line no-await-in-loop
-      await saveStudentCoMarks(studentMarkId, coMarksToSave);
-      if (questionMarksToSave.length > 0) {
-        // eslint-disable-next-line no-await-in-loop
-        await saveStudentQuestionMarks(studentMarkId, questionMarksToSave);
-      }
+        questionMarks: null,
+        studentId: studentIdByReg.get(regNo.toLowerCase()) || null,
+      }, connection);
     }
 
+    await connection.commit();
     res.json({ success: true, message: 'Student marks uploaded successfully' });
   } catch (err) {
+    try { await connection.rollback(); } catch (rollbackErr) { /* connection may already be dead */ }
     next(err);
+  } finally {
+    connection.release();
   }
 });
 

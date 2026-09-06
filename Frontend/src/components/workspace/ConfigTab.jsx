@@ -150,6 +150,19 @@ export default function ConfigTab({
                       className={smallInputClass}
                     />
                   </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-muted-foreground">Target %</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      disabled={readOnly}
+                      value={co.target_percent ?? 60}
+                      onChange={(e) => handleCoFieldChange(co.id, 'target_percent', e.target.value === '' ? null : parseFloat(e.target.value) || 0)}
+                      title="Attainment target as a percentage of the level scale (level / 3 × 100)"
+                      className={smallInputClass}
+                    />
+                  </div>
                 </div>
               </motion.div>
             ))}

@@ -62,8 +62,6 @@ export const unenrollStudentFromCourse = (courseId, studentId) =>
 export const fetchCourseStudents = (courseId) => axiosClient.get(`/courses/${courseId}/students`);
 export const uploadCourseStudents = (courseId, students) =>
   axiosClient.post(`/courses/${courseId}/students/upload`, { students });
-export const syncCourseEnrollment = (courseId) =>
-  axiosClient.post(`/courses/${courseId}/enrollment/sync-context`);
 
 // ── Program Outcomes (PEO / PO / PSO) — Phase 12 ───────────────────────────
 // The Program owns its outcome definitions; the articulation matrix and attainment

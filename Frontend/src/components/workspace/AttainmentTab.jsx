@@ -36,6 +36,23 @@ const getLevelBadge = (level) => {
   return <span className="inline-flex items-center rounded-md bg-rose-500/10 px-2 py-0.5 text-xs font-bold text-rose-600 dark:text-rose-400">Level 0</span>;
 };
 
+// Target/Status reuse the program-level OBE interpretation (Backend/utils/obeAssessmentService.js
+// statusFor): attainment is converted to a percentage (level / 3 × 100) and compared against the
+// CO's configured target_percent. A missing target OR missing data is never classified as failure.
+const getTargetStatus = (combinedLevel, targetPercent) => {
+  if (combinedLevel === null || combinedLevel === undefined || Number.isNaN(Number(combinedLevel))) {
+    return { status: 'No Data', label: 'No Data', title: 'No attainment data available for this CO.' };
+  }
+  if (targetPercent === null || targetPercent === undefined || targetPercent === '' || Number.isNaN(Number(targetPercent))) {
+    return { status: 'No Target', label: 'No Target', title: 'No target attainment level is configured for this CO.' };
+  }
+  const actualPercent = (Number(combinedLevel) / 3) * 100;
+  const achieved = actualPercent >= Number(targetPercent);
+  return achieved
+    ? { status: 'Achieved', label: 'Achieved', title: `${actualPercent.toFixed(1)}% attainment ≥ ${targetPercent}% target` }
+    : { status: 'Not Achieved', label: 'Not Achieved', title: `${actualPercent.toFixed(1)}% attainment < ${targetPercent}% target` };
+};
+
 export default function AttainmentTab({
   attainment,
   courseOutcomes = [],
@@ -268,6 +285,13 @@ export default function AttainmentTab({
                 const ett = attainment.ettAttainment?.perCo?.[co.id];
                 const combined = attainment.combinedCO?.[co.id];
 
+                const targetStatus = getTargetStatus(combined ? combined.combinedLevel : null, co.target_percent);
+                const targetDisplay = targetStatus.status === 'No Data'
+                  ? '—'
+                  : targetStatus.status === 'No Target'
+                    ? 'No Target'
+                    : `${Number(co.target_percent)}%`;
+
                 return (
                   <tr key={co.id} className="hover:bg-muted/30 transition-colors">
                     <td className="border-r border-border bg-muted/20 px-4 py-3 font-bold text-foreground">
@@ -305,11 +329,18 @@ export default function AttainmentTab({
                     <td className="border-r border-border bg-primary/5 px-4 py-3 text-center font-bold text-primary">
                       {combined ? combined.combinedLevel.toFixed(2) : '0.00'}
                     </td>
-                    <td className="border-r border-border px-4 py-3 text-center text-xs italic text-muted-foreground" title="No target attainment level is configured anywhere in this system yet — nothing is assumed.">
-                      Not configured
+                    <td className="border-r border-border px-4 py-3 text-center text-xs" title={targetStatus.title}>
+                      {targetDisplay}
                     </td>
-                    <td className="px-4 py-3 text-center text-xs italic text-muted-foreground">
-                      N/A
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                        targetStatus.status === 'Achieved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'
+                          : targetStatus.status === 'Not Achieved' ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-400'
+                          : targetStatus.status === 'No Target' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400'
+                          : 'bg-slate-100 text-slate-500 dark:bg-slate-500/15 dark:text-slate-400'
+                      }`}>
+                        {targetStatus.status === 'Achieved' ? 'Achieved' : targetStatus.status === 'Not Achieved' ? 'Needs Improvement' : targetStatus.status}
+                      </span>
                     </td>
                   </tr>
                 );
@@ -319,7 +350,7 @@ export default function AttainmentTab({
         </div>
         <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <Info className="h-3 w-3 shrink-0" />
-          Target attainment levels are not yet configurable in this system, so Target/Status are shown honestly as not configured rather than assumed.
+          Target attainment levels are configured per CO in Setup & Configs (default 60%). Status is computed as achieved if the combined attainment percentage (level / 3 × 100) meets or exceeds the configured target.
         </p>
       </div>
 

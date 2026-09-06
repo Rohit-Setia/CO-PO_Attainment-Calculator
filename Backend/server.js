@@ -30,8 +30,12 @@ const { createProgramOutcomesTable, seedDefaultProgramOutcomes } = require('./mo
 const { ensureOBESchema } = require('./models/obeModel');
 const { createStudentTables, migrateLegacyStudentData } = require('./models/studentModel');
 const { createAdminAuditTable } = require('./models/adminAuditModel');
+const { runPendingMigrations } = require('./utils/migrationRunner');
+const { ensureIndex } = require('./models/platformMigrations');
 
 const app = express();
+let httpServer;
+let shutdownStarted = false;
 
 // API-only server, no HTML views — CSP default-src 'none' is safe and disables the
 // noisy cross-origin-resource-policy default that otherwise blocks the Excel file download.
@@ -89,6 +93,17 @@ app.get('/health', async (req, res) => {
   }
 });
 
+app.get('/api/health/db', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT 1 AS ok');
+    if (!rows || rows[0]?.ok !== 1) throw new Error('db check failed');
+    res.json({ success: true, database: 'connected' });
+  } catch (err) {
+    console.error('[health] database check failed:', err.message);
+    res.status(503).json({ success: false, database: 'disconnected' });
+  }
+});
+
 app.use('/api', excelRouter);
 app.use('/api', authRouter);
 app.use('/api', courseRouter);
@@ -104,7 +119,10 @@ const PORT = process.env.PORT || 5000;
 // Phase 8 — production guards. Never log the actual secret value, only its presence/length.
 if (isProduction) {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
-    console.warn('[SECURITY] JWT_SECRET is missing or shorter than 32 characters. Set a strong, random secret in production.');
+    // Fail-fast in production: a predictable/weak signing secret is a critical
+    // security hole, not a warning. Set a strong, random JWT_SECRET before deploying.
+    console.error('[SECURITY] JWT_SECRET is missing or shorter than 32 characters. Set a strong, random secret in production. Refusing to start.');
+    process.exit(1);
   }
   if (!process.env.CLIENT_URL) {
     console.warn('[SECURITY] CLIENT_URL is not set in production. Only same-origin requests will be accepted.');
@@ -146,8 +164,10 @@ createUsersTable()
   .then(() => migrateLegacyStudentMarks())
   .then(() => createAdminAuditTable())
   .then(() => ensureOBESchema())
+  // Phase 0 — versioned migrations (only pending ones run, recorded in schema_migrations).
+  .then(() => runPendingMigrations())
   .then(() => {
-    app.listen(PORT, () => console.log('Server running on', PORT));
+    httpServer = app.listen(PORT, () => console.log('Server running on', PORT));
   })
   .catch((error) => {
     // Log full error (stack and object) to help diagnose DB init failures
@@ -158,5 +178,27 @@ createUsersTable()
       console.error('Original error:');
       console.error(error.original && error.original.stack ? error.original.stack : error.original);
     }
+    pool.end().catch((closeError) => console.error('[shutdown] failed to close database pool:', closeError.message));
     process.exit(1);
   });
+
+const shutdown = (signal) => {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  console.log(`[shutdown] ${signal} received; closing HTTP server and database pool.`);
+
+  const closeHttpServer = httpServer
+    ? new Promise((resolve) => httpServer.close(resolve))
+    : Promise.resolve();
+
+  closeHttpServer
+    .then(() => pool.end())
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error('[shutdown] graceful shutdown failed:', error.message);
+      process.exit(1);
+    });
+};
+
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -67,6 +67,12 @@ export default function CourseWorkspace() {
   const [draftQuestions, setDraftQuestions] = useState([]);
   const [importIssues, setImportIssues] = useState([]);
   const [reconciling, setReconciling] = useState(false);
+  const [pendingExamType, setPendingExamType] = useState(null);
+  const marksDirtyRef = useRef(false);
+  const setStudentsDirty = (updater) => {
+    marksDirtyRef.current = true;
+    setStudents(updater);
+  };
 
   const loadAllData = async () => {
     setLoading(true);
@@ -113,11 +119,26 @@ export default function CourseWorkspace() {
   useEffect(() => {
     const key = activeExamType === 'MTT' ? 'mtt' : 'ett';
     setStudents(marks[key] || []);
+    marksDirtyRef.current = false;
 
     const qs = questionConfigs[activeExamType] || [];
     setEntryMode(qs.length > 0 ? 'question' : 'co');
     setDraftQuestions(qs.map((q) => ({ key: q.id, question_number: q.question_number, co_id: q.co_id, max_marks: q.max_marks })));
   }, [activeExamType, marks, questionConfigs]);
+
+  const requestExamTypeChange = (next) => {
+    if (next === activeExamType) return;
+    if (marksDirtyRef.current) {
+      setPendingExamType(next);
+    } else {
+      setActiveExamType(next);
+    }
+  };
+  const confirmExamTypeChange = () => {
+    if (!pendingExamType) return;
+    setActiveExamType(pendingExamType);
+    setPendingExamType(null);
+  };
 
   const triggerAttainmentRecalc = async () => {
     try {
@@ -143,7 +164,10 @@ export default function CourseWorkspace() {
     try {
       await saveCourseConfig(id, { config });
       await Promise.all(courseOutcomes.map((co) => updateCourseOutcome(id, co.id, {
-        description: co.description, max_internal: co.max_internal, max_external: co.max_external,
+        description: co.description,
+        max_internal: co.max_internal,
+        max_external: co.max_external,
+        target_percent: co.target_percent !== null && co.target_percent !== undefined ? co.target_percent : 60,
       })));
       toast.success('Configuration saved.');
       await loadAllData();
@@ -235,13 +259,13 @@ export default function CourseWorkspace() {
 
   // ── Marks handlers ────────────────────────────────────────────────────────
   const updateMark = (index, key, value) => {
-    setStudents((prev) => {
+    setStudentsDirty((prev) => {
       const updated = [...prev];
       const s = { ...updated[index] };
       const field = entryMode === 'question' ? 'questionMarks' : 'coMarks';
-      const marksMap = { ...s[field], [key]: value === '' ? '' : parseFloat(value) || 0 };
+      const marksMap = { ...s[field], [key]: value === '' ? '' : (value === null || value === undefined ? '' : parseFloat(value)) };
       s[field] = marksMap;
-      s.totalMarks = Object.values(marksMap).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+      s.totalMarks = Object.values(marksMap).reduce((sum, v) => sum + (v === '' || v === null || v === undefined ? 0 : parseFloat(v) || 0), 0);
       updated[index] = s;
       return updated;
     });
@@ -272,7 +296,7 @@ export default function CourseWorkspace() {
   };
 
   const updateStudentInfo = (index, field, value) => {
-    setStudents((prev) => {
+    setStudentsDirty((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
       return updated;
@@ -302,7 +326,7 @@ export default function CourseWorkspace() {
   };
 
   const addStudentRow = () => {
-    setStudents((prev) => [...prev, emptyStudent()]);
+    setStudentsDirty((prev) => [...prev, emptyStudent()]);
   };
 
   const savedQuestions = questionConfigs[activeExamType] || [];
@@ -317,6 +341,7 @@ export default function CourseWorkspace() {
       await saveCourseMarks(id, { examType: activeExamType, entryMode, students });
       toast.success(`Saved ${activeExamType} marks successfully.`);
       setImportIssues([]);
+      marksDirtyRef.current = false;
       const marksRes = await fetchCourseMarks(id);
       setMarks(marksRes.data.data);
       await triggerAttainmentRecalc();
@@ -683,7 +708,7 @@ export default function CourseWorkspace() {
                 courseOutcomes={courseOutcomes}
                 students={students}
                 activeExamType={activeExamType}
-                setActiveExamType={setActiveExamType}
+                setActiveExamType={requestExamTypeChange}
                 entryMode={entryMode}
                 setEntryMode={setEntryMode}
                 draftQuestions={draftQuestions}
@@ -718,6 +743,33 @@ export default function CourseWorkspace() {
               />
             </TabsContent>
           </Tabs>
+
+          {pendingExamType && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+              <div className="w-full max-w-md rounded-xl border bg-background p-5 shadow-xl">
+                <h3 className="text-base font-bold">You have unsaved changes</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  You have unsaved changes. Are you sure you want to switch assessment type to <span className="font-semibold text-foreground">{pendingExamType}</span>? Unsaved edits will be discarded.
+                </p>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPendingExamType(null)}
+                    className="rounded-md border px-4 py-1.5 text-sm hover:bg-muted"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmExamTypeChange}
+                    className="rounded-md bg-red-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+                  >
+                    Discard Changes & Switch
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </PageTransition>
   );
