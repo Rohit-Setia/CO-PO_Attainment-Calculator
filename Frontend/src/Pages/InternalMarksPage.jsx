@@ -266,7 +266,10 @@ export default function InternalMarksPage() {
         students: changedStudents.map((s) => ({
           name: s.name,
           roll: s.regNo,
-          coMarks: Object.fromEntries(outcomes.map((co) => [co.id, parseFloat(s.coMarks[String(co.id)]) || 0])),
+          coMarks: Object.fromEntries(outcomes.map((co) => {
+            const v = s.coMarks[String(co.id)];
+            return [co.id, v === '' || v === null || v === undefined ? '' : parseFloat(v)];
+          })),
         })),
       });
       toast.success(`✓ Marks saved successfully (${changedStudents.length} student${changedStudents.length > 1 ? 's' : ''}).`);
@@ -338,6 +341,7 @@ export default function InternalMarksPage() {
   // ── Phase 5: Marks Excel download & import ────────────────────────────────
   const [importState, setImportState] = useState(null);
   // importState: { step: 'preview'|'result', file, preview, rows, result, acknowledgeMissing }
+  const [pendingAssessmentChange, setPendingAssessmentChange] = useState(null);
 
   const handleDownloadTemplate = async () => {
     if (!courseId) return;
@@ -664,7 +668,14 @@ export default function InternalMarksPage() {
                   Assessment
                   <select
                     value={assessment}
-                    onChange={(e) => setAssessment(e.target.value)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (next !== assessment && (dirtyRef.current || changedStudents.length > 0)) {
+                        setPendingAssessmentChange(next);
+                      } else {
+                        setAssessment(next);
+                      }
+                    }}
                     disabled={saving}
                     className="rounded-md border bg-background px-2 py-1.5 text-sm font-semibold text-foreground"
                   >
@@ -926,6 +937,37 @@ export default function InternalMarksPage() {
                 </ul>
                 <div className="mt-4 flex justify-end gap-2">
                   <button type="button" onClick={() => setImportState(null)} className="rounded-md bg-blue-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">View Marks</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Unsaved-changes confirmation before switching assessment ── */}
+          {pendingAssessmentChange && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+              <div className="w-full max-w-md rounded-xl border bg-background p-5 shadow-xl">
+                <h3 className="text-base font-bold">You have unsaved changes</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  You have unsaved changes. Are you sure you want to switch assessment type to <span className="font-semibold text-foreground">{pendingAssessmentChange}</span>? Unsaved edits will be discarded.
+                </p>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPendingAssessmentChange(null)}
+                    className="rounded-md border px-4 py-1.5 text-sm hover:bg-muted"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAssessment(pendingAssessmentChange);
+                      setPendingAssessmentChange(null);
+                    }}
+                    className="rounded-md bg-red-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+                  >
+                    Discard Changes & Switch
+                  </button>
                 </div>
               </div>
             </div>

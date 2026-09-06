@@ -97,7 +97,8 @@ const getMarksByCourse = async (courseId, examType) => {
   return rows;
 };
 
-const saveStudentMark = async ({ courseId, name, regNo, examType, co1, co2, co3, co4, co5, co6, totalMarks, questionMarks, studentId }) => {
+const saveStudentMark = async ({ courseId, name, regNo, examType, co1, co2, co3, co4, co5, co6, totalMarks, questionMarks, studentId }, conn) => {
+  const db = conn || pool;
   const query = `
     INSERT INTO student_marks 
       (course_id, name, reg_no, exam_type, co1, co2, co3, co4, co5, co6, total_marks, question_marks, student_id)
@@ -115,30 +116,64 @@ const saveStudentMark = async ({ courseId, name, regNo, examType, co1, co2, co3,
       student_id = VALUES(student_id)
   `;
 
-  const [result] = await pool.query(query, [
+  const [result] = await db.query(query, [
     courseId,
     name,
     regNo,
     examType,
-    co1 || 0,
-    co2 || 0,
-    co3 || 0,
-    co4 || 0,
-    co5 || 0,
-    co6 || 0,
-    totalMarks || 0,
-    questionMarks || null,
-    studentId || null,
+    co1 ?? 0,
+    co2 ?? 0,
+    co3 ?? 0,
+    co4 ?? 0,
+    co5 ?? 0,
+    co6 ?? 0,
+    totalMarks ?? 0,
+    questionMarks ?? null,
+    studentId ?? null,
   ]);
 
-  // Reliable because every current caller deletes-then-reinserts (marks save) or inserts into a
-  // brand-new course (JSON import) — this is always a genuine INSERT, never the UPDATE branch.
+  // True INSERT on first write; otherwise the ON DUPLICATE KEY UPDATE branch ran, so fetch the
+  // id of the existing row keyed by (course_id, reg_no, exam_type). Never deletes-then-inserts.
   if (result.insertId) return result.insertId;
-  const [rows] = await pool.query(
+  const [rows] = await db.query(
     'SELECT id FROM student_marks WHERE course_id = ? AND reg_no = ? AND exam_type = ?',
     [courseId, regNo, examType],
   );
   return rows[0]?.id;
+};
+
+// Looks up an existing marks row for a course+reg_no+exam_type without creating anything.
+const getStudentMarkRow = async (courseId, regNo, examType, conn) => {
+  const db = conn || pool;
+  const [rows] = await db.query(
+    'SELECT * FROM student_marks WHERE course_id = ? AND reg_no = ? AND exam_type = ? LIMIT 1',
+    [courseId, regNo, examType],
+  );
+  return rows[0] || null;
+};
+
+// Fetch one student row's CO marks: { [co_id]: marks }
+const getCoMarksForStudentMark = async (studentMarkId, conn) => {
+  const db = conn || pool;
+  const [rows] = await db.query(
+    'SELECT co_id, marks FROM student_co_marks WHERE student_mark_id = ?',
+    [studentMarkId],
+  );
+  const byCo = {};
+  rows.forEach((r) => { byCo[r.co_id] = parseFloat(r.marks); });
+  return byCo;
+};
+
+// Fetch one student row's question marks: { [question_config_id]: marks }
+const getQuestionMarksForStudentMark = async (studentMarkId, conn) => {
+  const db = conn || pool;
+  const [rows] = await db.query(
+    'SELECT question_config_id, marks FROM student_question_marks WHERE student_mark_id = ?',
+    [studentMarkId],
+  );
+  const byQuestion = {};
+  rows.forEach((r) => { byQuestion[r.question_config_id] = parseFloat(r.marks); });
+  return byQuestion;
 };
 
 const deleteMarksByCourse = async (courseId, examType) => {
@@ -150,6 +185,10 @@ const deleteMarksByCourse = async (courseId, examType) => {
   }
   await pool.query(query, params);
 };
+// NOTE: deleteMarksByCourse is intentionally NOT wired into the marks save flow anymore —
+// saving student marks now UPSERTs (see courseRoutes.js POST /courses/:id/marks) so that
+// submitting one student's marks never deletes other students' rows. The helper remains
+// exported for explicit administrative cleanups only.
 
 // ── Normalized per-student CO / question marks (dynamic CO & question count) ────────────────
 // student_marks.co1..co6 and .question_marks (JSON) are the legacy fixed-width/blob storage.
@@ -296,23 +335,25 @@ const getQuestionMarksForCourse = async (courseId, examType) => {
 };
 
 // coMarksArray: [{ co_id, marks }]
-const saveStudentCoMarks = async (studentMarkId, coMarksArray) => {
+const saveStudentCoMarks = async (studentMarkId, coMarksArray, conn) => {
+  const db = conn || pool;
   for (const { co_id, marks } of coMarksArray) {
-    await pool.query(
+    await db.query(
       `INSERT INTO student_co_marks (student_mark_id, co_id, marks) VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE marks = VALUES(marks)`,
-      [studentMarkId, co_id, marks || 0],
+      [studentMarkId, co_id, marks ?? 0],
     );
   }
 };
 
 // questionMarksArray: [{ question_config_id, marks }]
-const saveStudentQuestionMarks = async (studentMarkId, questionMarksArray) => {
+const saveStudentQuestionMarks = async (studentMarkId, questionMarksArray, conn) => {
+  const db = conn || pool;
   for (const { question_config_id, marks } of questionMarksArray) {
-    await pool.query(
+    await db.query(
       `INSERT INTO student_question_marks (student_mark_id, question_config_id, marks) VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE marks = VALUES(marks)`,
-      [studentMarkId, question_config_id, marks || 0],
+      [studentMarkId, question_config_id, marks ?? 0],
     );
   }
 };
@@ -330,4 +371,7 @@ module.exports = {
   getQuestionMarksForCourse,
   saveStudentCoMarks,
   saveStudentQuestionMarks,
+  getStudentMarkRow,
+  getCoMarksForStudentMark,
+  getQuestionMarksForStudentMark,
 };

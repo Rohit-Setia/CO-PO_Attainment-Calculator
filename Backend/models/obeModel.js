@@ -158,6 +158,7 @@ const computeCourseAttainmentRow = async (course, filters = {}) => {
     coNodes: coNodesForCourse,
     poValues,
     psoValues,
+    coPoValues, // cached for heatmap reuse
   };
 };
 const createOutcomeVersionsTable = async () => {
@@ -288,11 +289,19 @@ const getProgramDashboard = async (programId, filters = {}) => {
   const courseRows = [];
   const courseSummary = {};
   const coNodes = [];
-  const poCourseRows = []; // aggregate inputs: { code, courseId, enrolledCount, values }
+  const poCourseRows = [];
   const psoCourseRows = [];
+  const coPoValuesCache = {};
 
-  for (const course of courses) {
+  // Parallelize per-course attainment computation — each course's data is independent, so
+  // Promise.all runs them concurrently without changing the calculation results.
+  const courseResults = await Promise.all(courses.map(async (course) => {
     const row = await computeCourseAttainmentRow(course, filters);
+    coPoValuesCache[course.id] = row.coPoValues || [];
+    return { course, row };
+  }));
+
+  for (const { course, row } of courseResults) {
     courseRows.push({
       courseId: row.courseId,
       courseCode: row.courseCode,
@@ -353,11 +362,12 @@ const getProgramDashboard = async (programId, filters = {}) => {
   });
 
   // Heatmap: rows are each course's COs, columns are the program's actual PO/PSO codes.
+  // Reuses the co_po_values already loaded during course attainment computation (no N+1).
   const poColumns = (outcomeMap.PO || []).map((d) => d.code);
   const psoColumns = (outcomeMap.PSO || []).map((d) => d.code);
   const heatmapRows = [];
   for (const course of courses) {
-    const coPoValues = await getCoPoValuesForCourse(course.id);
+    const coPoValues = coPoValuesCache[course.id] || [];
     for (const row of coPoValues) {
       const values = {};
       poColumns.forEach((code) => { values[code] = Number(row[code.toLowerCase()] || 0); });
