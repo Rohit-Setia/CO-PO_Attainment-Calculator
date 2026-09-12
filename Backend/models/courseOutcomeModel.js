@@ -128,6 +128,31 @@ const reactivateCourseOutcome = async (id) => {
   return result.affectedRows > 0;
 };
 
+// Finds a CO by its number for a course, creating it (with sensible defaults) if it doesn't
+// exist yet — used when an approved question paper references a CO the course hasn't
+// configured before. Never overwrites an existing description.
+const findOrCreateOutcomeByNumber = async (courseId, coNumber) => {
+  const [rows] = await pool.query(
+    'SELECT * FROM course_outcomes WHERE course_id = ? AND co_number = ?',
+    [courseId, coNumber],
+  );
+  if (rows[0]) return rows[0];
+  const [result] = await pool.query(
+    `INSERT INTO course_outcomes (course_id, co_number, description, max_internal, max_external)
+     VALUES (?, ?, ?, 10, 20)`,
+    [courseId, coNumber, `Course Outcome ${coNumber}`],
+  );
+  return getOutcomeById(result.insertId);
+};
+
+// Sets max_internal (MTT) or max_external (ETT) to an authoritative value — used when an
+// approved question paper's own per-question marks are the source of truth for that CO's max
+// for this exam component. Only touches the one field for the relevant exam type.
+const setOutcomeMaxForExamType = async (id, examType, maxMarks) => {
+  const column = examType === 'MTT' ? 'max_internal' : 'max_external';
+  await pool.query(`UPDATE course_outcomes SET ${column} = ? WHERE id = ?`, [maxMarks, id]);
+};
+
 module.exports = {
   MAX_COS_PER_COURSE,
   createCourseOutcomeTables,
@@ -138,4 +163,6 @@ module.exports = {
   updateCourseOutcome,
   archiveCourseOutcome,
   reactivateCourseOutcome,
+  findOrCreateOutcomeByNumber,
+  setOutcomeMaxForExamType,
 };

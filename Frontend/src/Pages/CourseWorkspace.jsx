@@ -50,6 +50,7 @@ export default function CourseWorkspace() {
   const [mapping, setMapping] = useState({ values: [], averages: {}, programOutcomes: { PO: [], PSO: [] } });
   const [marks, setMarks] = useState({ mtt: [], ett: [] });
   const [questionConfigs, setQuestionConfigs] = useState({ MTT: [], ETT: [] });
+  const [questionLocks, setQuestionLocks] = useState({ MTT: false, ETT: false });
   const [maxQuestionsAllowed, setMaxQuestionsAllowed] = useState(50);
   const [attainment, setAttainment] = useState(null);
 
@@ -94,6 +95,7 @@ export default function CourseWorkspace() {
         fetchQuestionConfig(id, 'ETT'),
       ]);
       setQuestionConfigs({ MTT: mttQRes.data.data, ETT: ettQRes.data.data });
+      setQuestionLocks({ MTT: !!mttQRes.data.locked, ETT: !!ettQRes.data.locked });
       setMaxQuestionsAllowed(mttQRes.data.maxAllowed || 50);
 
       const attainmentRes = await fetchCourseAttainment(id);
@@ -236,6 +238,10 @@ export default function CourseWorkspace() {
   };
 
   const saveQuestions = async () => {
+    if (questionLocks[activeExamType]) {
+      toast.error('This paper was approved by the Examination Cell — question configuration is locked.');
+      return;
+    }
     if (draftQuestions.some((q) => !q.co_id)) {
       toast.error('Select a Course Outcome for every question before saving.');
       return;
@@ -728,6 +734,7 @@ export default function CourseWorkspace() {
                 removeStudent={removeStudent}
                 addStudentRow={addStudentRow}
                 readOnly={isReadOnly}
+                questionsLocked={questionLocks[activeExamType]}
                 course={course}
                 hierarchy={hierarchy}
                 studentsAutoLoaded={Boolean(hierarchy?.linked)}

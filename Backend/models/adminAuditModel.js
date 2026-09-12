@@ -36,6 +36,18 @@ const logAction = async ({ actorUserId, actorName, action, entityType, entityId,
   }
 };
 
+// Same insert as logAction(), but on a caller-supplied transaction connection and
+// WITHOUT the swallow-and-continue behaviour. Used by operations where the audit row
+// is part of the atomic unit of work — e.g. teacher deletion, where an unaudited
+// delete is worse than a failed one. A throw here rolls the whole transaction back.
+const logActionInTransaction = async (conn, { actorUserId, actorName, action, entityType, entityId, details }) => {
+  const [result] = await conn.query(
+    'INSERT INTO admin_audit_log (actor_user_id, actor_name, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?, ?)',
+    [actorUserId, actorName || null, action, entityType, entityId || null, details ? JSON.stringify(details) : null],
+  );
+  return result.insertId;
+};
+
 const getAuditLog = async ({ entityType, entityId, limit = 100 } = {}) => {
   const conditions = [];
   const params = [];
@@ -49,4 +61,4 @@ const getAuditLog = async ({ entityType, entityId, limit = 100 } = {}) => {
   return rows;
 };
 
-module.exports = { createAdminAuditTable, logAction, getAuditLog };
+module.exports = { createAdminAuditTable, logAction, logActionInTransaction, getAuditLog };

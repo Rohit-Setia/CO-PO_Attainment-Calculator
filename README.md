@@ -4,7 +4,7 @@ A full-stack, enterprise-grade web application built for educational institution
 
 This platform empowers administrators, examination teams, subject coordinators, and faculty to manage academic courses, configure question-level and outcome-level mappings, import student records via Excel, visualize attainment metrics with interactive charts, and export professionally formatted reports with live Excel formulas.
 
-📄 **Deeper docs**: [Architecture](docs/architecture.md) · [Database Schema](docs/database.md) · [Calculation Methodology](docs/calculation-methodology.md) · [Deployment](docs/deployment.md)
+📄 **In this README**: [Installation](#️-system-requirements--installation) · [Shared cloud database setup](#shared-cloud-database-for-two-developers) · [RBAC matrix](#-role-based-access-control-rbac-matrix) · [API reference](#-api-endpoints-reference)
 
 ---
 
@@ -47,7 +47,8 @@ CO-PO Attainment/
 │   ├── config/
 │   │   └── db.js                        # MySQL Connection Pool (mysql2/promise)
 │   ├── controllers/
-│   │   └── authController.js            # Registration, Login, Profile & User Management
+│   │   ├── authController.js            # Registration, Login, Profile & User Management
+│   │   └── teacherController.js         # Teacher directory, CSV/XLSX import & credential emails
 │   ├── middlewares/
 │   │   ├── authMiddleware.js            # JWT Bearer Token Verification
 │   │   ├── errorMiddleware.js           # Centralized Express Error Handling
@@ -61,9 +62,11 @@ CO-PO Attainment/
 │   ├── routes/
 │   │   ├── authRoutes.js                # Auth & Admin Management Endpoints (rate-limited)
 │   │   ├── courseRoutes.js               # Full Course Workspace, Marks & Snapshot APIs
+│   │   ├── teacherRoutes.js              # Admin teacher management + public set-password API
 │   │   └── excelExport.js               # ExcelJS Styled Workbook Generation API
 │   ├── utils/
 │   │   ├── attainmentCalculator.js      # Direct Attainment & PO Computation Engine
+│   │   ├── migrationRunner.js           # Versioned, idempotent schema_migrations runner
 │   │   ├── excelHelpers.js              # Workbook Styling & Excel Formula Builders
 │   │   └── generateToken.js             # JWT Signing Utility with Embedded Role
 │   ├── package.json
@@ -72,6 +75,7 @@ CO-PO Attainment/
 │   ├── src/
 │   │   ├── Api/
 │   │   │   ├── authApi.js               # Auth & Profile API Calls
+│   │   │   ├── adminApi.js              # Teacher management & set-password API Calls
 │   │   │   └── AttainmentApi.js         # Course Workspace, Calculation & Export APIs
 │   │   ├── components/
 │   │   │   ├── auth/
@@ -98,6 +102,8 @@ CO-PO Attainment/
 │   │   │   └── ThemeContext.jsx         # Dark/Light Theme State (persisted to localStorage)
 │   │   ├── Pages/
 │   │   │   ├── AdminPanel.jsx           # User Management, Approvals & Role Assignment
+│   │   │   ├── TeacherManagementPage.jsx # Teacher Directory & Bulk Import (Admin)
+│   │   │   ├── SetPasswordPage.jsx      # Public first-login password setup
 │   │   │   ├── CourseWorkspace.jsx      # Tabbed Course Workspace
 │   │   │   ├── DashboardPage.jsx        # Faculty Dashboard & Course Management
 │   │   │   ├── LoginPage.jsx            # Sign In Screen
@@ -111,8 +117,6 @@ CO-PO Attainment/
 │   ├── package.json
 │   ├── tailwind.config.js               # Tailwind Design Tokens & Configuration
 │   └── vite.config.js                   # Vite Bundler Setup
-├── test_question_wise.xlsx              # Sample Question-Wise Import Spreadsheet
-├── test_question_wise.csv               # Sample CSV Import Spreadsheet
 └── README.md                            # Comprehensive Platform Documentation
 ```
 
@@ -146,16 +150,69 @@ CO-PO Attainment/
    DB_PASSWORD=<YOUR_MYSQL_PASSWORD>
    DB_NAME=<YOUR_DATABASE_NAME>
    DB_PORT=3306
+   DB_SSL=false
+   DB_CONNECTION_LIMIT=10
    JWT_SECRET=<YOUR_RANDOM_SECRET_KEY>   # required — the server refuses to start without this set
    ```
    Generate a secret with: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
-   *Note: Ensure your target database is created in MySQL before starting the server. Never commit `.env` — it's git-ignored.*
+   Set `DB_SSL=true` for providers that require TLS. If the provider supplies a
+   CA certificate, set `DB_SSL_CA` in the backend environment. Never put any
+   database variable in a `VITE_` frontend variable or commit `.env`.
+
+   **Local MySQL option** — point at your own machine instead of the cloud:
+   ```env
+   DB_HOST=127.0.0.1
+   DB_PORT=3306
+   DB_SSL=false
+   ```
+   **Cloud MySQL option (Aiven)** — copy the exact values from
+   *Aiven Console → your MySQL service → Service Details → Connection info*:
+   ```env
+   DB_HOST=<your-service>.aivencloud.com
+   DB_PORT=<service-specific-port>   # e.g. 28854, not 3306
+   DB_NAME=defaultdb
+   DB_USER=avnadmin
+   DB_SSL=true
+   ```
+   The password stays only in each developer's private `Backend/.env`.
+   If the Aiven service is recreated, the host/port change — update every
+   developer's `.env` accordingly (never the source code).
 
 4. **Start the Backend server**:
    ```bash
    npm run dev
    ```
-   *The server initializes the database pool and automatically executes schema migrations on startup.*
+   *The server initializes one pooled MySQL connection configuration and runs
+   additive schema setup plus recorded migrations on startup.*
+
+### Shared cloud database for two developers
+
+Each developer runs the same application locally and creates a private
+`Backend/.env` containing the exact same cloud `DB_HOST`, `DB_PORT`, `DB_NAME`,
+`DB_USER`, `DB_PASSWORD`, and `DB_SSL` values. Only the backend connects to the
+database:
+
+```text
+React/Vite -> local Express backend -> shared cloud MySQL
+```
+
+Verify either backend with `GET http://localhost:5000/api/health/db`. The
+endpoint returns only connection status. The general `GET /health` endpoint
+returns `{"status":"ok"}` or a safe degraded response when MySQL is unavailable.
+
+Before a major schema change, create a backup:
+
+```bash
+mysqldump --host=<host> --port=<port> --user=<user> --password --single-transaction --routines --triggers <database> > backup-YYYYMMDD.sql
+```
+
+After confirming the target and backup, manually import it with:
+
+```bash
+mysql --host=<cloud-host> --port=<cloud-port> --user=<cloud-user> --password <cloud-database> < backup-YYYYMMDD.sql
+```
+
+The server never runs destructive import/reset commands automatically.
 
 ---
 
@@ -283,7 +340,7 @@ $$\text{Final Attainment}_{CO_i} = \left(\text{Internal Level}_{CO_i} \times \fr
 ### 4. Direct Program Outcome (PO) Attainment
 The implementation (`Backend/utils/attainmentCalculator.js`) uses a simpler formula than a full per-CO weighted sum: it multiplies the **overall course attainment** (the single combined CO score from step 3, averaged across all COs) by the **average CO→PO correlation** for that PO column (computed and stored server-side whenever the articulation matrix is saved):
 $$\text{Attainment}_{PO_j} = \text{AvgCorrelation}_{PO_j} \times \text{OverallCourseAttainment}, \quad \text{where } \text{AvgCorrelation}_{PO_j} = \frac{\sum_{i=1}^{n} \text{Mapping}_{CO_i, PO_j}}{\text{count of non-zero mappings for } PO_j}$$
-This means every PO/PSO attainment value for a given course shares the same underlying course-attainment score, scaled only by that PO's average articulation strength — it is **not** a per-CO weighted contribution formula. If your institution's OBE methodology requires the full per-CO weighted-sum formula, this is a known simplification to revisit before using the numbers for accreditation submission — see [docs/calculation-methodology.md](docs/calculation-methodology.md).
+This means every PO/PSO attainment value for a given course shares the same underlying course-attainment score, scaled only by that PO's average articulation strength — it is **not** a per-CO weighted contribution formula. If your institution's OBE methodology requires the full per-CO weighted-sum formula, this is a known simplification to revisit before using the numbers for accreditation submission.
 
 ---
 

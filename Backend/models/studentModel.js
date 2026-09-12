@@ -53,7 +53,7 @@ const migrateLegacyStudentData = async () => {
   // We need to carefully migrate students from student_marks so we don't duplicate them.
   // We use reg_no as the stable identifier for registration_number.
   
-  const [marks] = await pool.query('SELECT DISTINCT name, reg_no FROM student_marks WHERE reg_no IS NOT NULL AND reg_no != ""');
+  const [marks] = await pool.query("SELECT DISTINCT name, reg_no FROM student_marks WHERE reg_no IS NOT NULL AND reg_no != ''");
   
   for (const mark of marks) {
     const [existingStudent] = await pool.query('SELECT id FROM students WHERE registration_number = ?', [mark.reg_no]);
@@ -63,7 +63,7 @@ const migrateLegacyStudentData = async () => {
   }
 
   // Next, we can try to build course enrollments based on student_marks presence
-  const [allMarks] = await pool.query('SELECT DISTINCT course_id, reg_no FROM student_marks WHERE reg_no IS NOT NULL AND reg_no != ""');
+  const [allMarks] = await pool.query("SELECT DISTINCT course_id, reg_no FROM student_marks WHERE reg_no IS NOT NULL AND reg_no != ''");
   for (const mark of allMarks) {
     const [student] = await pool.query('SELECT id FROM students WHERE registration_number = ?', [mark.reg_no]);
     if (student.length > 0) {

@@ -70,6 +70,14 @@ const LoginPage = () => {
             required
             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground transition focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
           />
+          <div className="mt-1.5 text-right">
+            <Link
+              to="/forgot-password"
+              className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Forgot Password?
+            </Link>
+          </div>
         </div>
 
         {error ? (

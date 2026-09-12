@@ -36,6 +36,7 @@ export default function MarksTab({
   removeStudent,
   addStudentRow,
   readOnly = false,
+  questionsLocked = false,
   course = null,
   hierarchy = null,
   studentsAutoLoaded = false,
@@ -93,6 +94,7 @@ export default function MarksTab({
           savingQuestions={savingQuestions}
           maxAllowed={maxQuestionsAllowed}
           readOnly={readOnly}
+          locked={questionsLocked}
         />
       )}
 

@@ -16,6 +16,8 @@
     "@radix-ui/react-tabs": "^1.1.21",
     "@radix-ui/react-tooltip": "^1.2.16",
     "axios": "^1.13.2",
+    "baseline-browser-mapping": "^2.11.21",
+    "caniuse-lite": "^1.0.30001810",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^13.1.1",

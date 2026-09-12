@@ -28,8 +28,15 @@ const AcademicAdministrationPage = lazy(() => import('./Pages/AcademicAdministra
 const StudentMasterPage = lazy(() => import('./Pages/StudentMasterPage'));
 const ProgramOutcomeManagement = lazy(() => import('./Pages/ProgramOutcomeManagement'));
 const ProgramOBEDashboard = lazy(() => import('./Pages/ProgramOBEDashboard'));
+const TeacherManagementPage = lazy(() => import('./Pages/TeacherManagementPage'));
+const SetPasswordPage = lazy(() => import('./Pages/SetPasswordPage'));
+const ForgotPasswordPage = lazy(() => import('./Pages/ForgotPasswordPage'));
+const ExaminationCellPage = lazy(() => import('./Pages/ExaminationCellPage'));
+const PaperReviewPage = lazy(() => import('./Pages/PaperReviewPage'));
+const MyExaminationsPage = lazy(() => import('./Pages/MyExaminationsPage'));
 
 const ADMIN_ROLES = ['Admin', 'Moderator', 'School Admin', 'Department Admin'];
+const EXAM_CELL_ROLES = ['Admin', 'Moderator', 'School Admin', 'Department Admin', 'Examination Team'];
 
 const PageFallback = () => (
   <div className="space-y-3">
@@ -46,6 +53,8 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/set-password" element={<SetPasswordPage />} />
 
         <Route
           element={
@@ -132,7 +141,28 @@ const AppRoutes = () => {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/admin/teachers"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <TeacherManagementPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/obe-dashboard" element={<ProgramOBEDashboard />} />
+          <Route
+            path="/examinations"
+            element={
+              <ProtectedRoute allowedRoles={EXAM_CELL_ROLES}>
+                <ExaminationCellPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/examinations/papers/:id"
+            element={<PaperReviewPage />}
+          />
+          <Route path="/my-examinations" element={<MyExaminationsPage />} />
         </Route>
 
         <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />

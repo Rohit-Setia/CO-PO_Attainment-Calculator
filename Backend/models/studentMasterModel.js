@@ -17,11 +17,9 @@ const findStudentByAnyIdentifier = async (value) => {
   const [rows] = await pool.query(
     `SELECT * FROM students
      WHERE registration_number = ?
-        OR univ_roll_no = ?
-        OR roll_no = ?
         OR roll_number = ?
      LIMIT 1`,
-    [v, v, v, v],
+    [v, v],
   );
   return rows[0] || null;
 };
@@ -43,11 +41,11 @@ const findStudentInContext = async ({ registrationNumber, programId, sessionId }
 
 // Create a student in the master with its academic context. Nullable academic FKs (3A) allow
 // NULL = "unmapped"; we never invent semester/department. Returns insertId.
-const createStudent = async ({ registrationNumber, rollNumber, name, email, phone, status, programId, sessionId, semester }) => {
+const createStudent = async ({ registrationNumber, rollNumber, name, email, status, programId, sessionId, semester }) => {
   const [result] = await pool.query(
-    `INSERT INTO students (registration_number, roll_number, roll_no, name, email, phone, status, academic_program_id, academic_session_id, semester)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [registrationNumber, rollNumber || null, rollNumber || null, name, email || null, phone || null, status || 'Active',
+    `INSERT INTO students (registration_number, roll_number, name, email, status, academic_program_id, academic_session_id, semester)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [registrationNumber, rollNumber || null, name, email || null, status || 'Active',
       programId || null, sessionId || null, semester ?? null],
   );
   const [inserted] = await pool.query('SELECT * FROM students WHERE id = ?', [result.insertId]);
@@ -55,15 +53,13 @@ const createStudent = async ({ registrationNumber, rollNumber, name, email, phon
 };
 
 // Update a student's identity/master/academic-context fields.
-const updateStudent = async (id, { registrationNumber, rollNumber, name, email, phone, status, programId, sessionId, semester }) => {
+const updateStudent = async (id, { registrationNumber, rollNumber, name, email, status, programId, sessionId, semester }) => {
   const sets = [];
   const values = [];
   if (registrationNumber !== undefined) { sets.push('registration_number = ?'); values.push(registrationNumber); }
   if (rollNumber !== undefined) { sets.push('roll_number = ?'); values.push(rollNumber); }
-  if (rollNumber !== undefined) { sets.push('roll_no = ?'); values.push(rollNumber); }
   if (name !== undefined) { sets.push('name = ?'); values.push(name); }
   if (email !== undefined) { sets.push('email = ?'); values.push(email); }
-  if (phone !== undefined) { sets.push('phone = ?'); values.push(phone); }
   if (status !== undefined) { sets.push('status = ?'); values.push(status); }
   if (programId !== undefined) { sets.push('academic_program_id = ?'); values.push(programId); }
   if (sessionId !== undefined) { sets.push('academic_session_id = ?'); values.push(sessionId); }
@@ -138,8 +134,8 @@ const listStudents = async (filters = {}) => {
   const params = [];
   if (filters.search) {
     const q = `%${filters.search}%`;
-    conditions.push('(st.registration_number LIKE ? OR st.name LIKE ? OR st.roll_number LIKE ? OR st.roll_no LIKE ?)');
-    params.push(q, q, q, q);
+    conditions.push('(st.registration_number LIKE ? OR st.name LIKE ? OR st.roll_number LIKE ?)');
+    params.push(q, q, q);
   }
   if (filters.status) { conditions.push('st.status = ?'); params.push(filters.status); }
   if (filters.programId) { conditions.push('st.academic_program_id = ?'); params.push(filters.programId); }
