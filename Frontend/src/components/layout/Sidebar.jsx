@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, BookOpen, Users, ClipboardList, Grid3x3, Target,
   Calculator, FileBarChart, Upload, Settings, ShieldCheck, BarChart3,
-  HelpCircle, LogOut, X, Building2, UserCog,
+  LogOut, X, Building2, UserCog, GraduationCap, FileCheck2, Bell,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -22,6 +22,7 @@ const NAV_SECTIONS = [
       { label: 'CO Mapping', to: '/co-mapping', icon: Grid3x3 },
       { label: 'PO Mapping', to: '/po-mapping', icon: Target },
       { label: 'CO-PO Calculation', to: '/co-po-calculation', icon: Calculator },
+      { label: 'My Examinations', to: '/my-examinations', icon: FileCheck2 },
     ],
   },
   {
@@ -143,32 +144,44 @@ export default function Sidebar({ open, onClose }) {
                 School Admin (own School) / Department Admin (own Department);
                 the backend enforces the actual scope on every request these pages make,
                 this only decides whether to show the links. */}
-            {hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin') && (
+            {hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin', 'Examination Team') && (
               <div>
                 <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.15em] text-sidebar-muted/60">
                   Administration
                 </p>
                 <div className="space-y-0.5">
-                  <NavLink to="/admin/academic-structure" className={navLinkClass} onClick={onClose}>
-                    <Building2 className="h-4 w-4 shrink-0" />
-                    Academic Structure
+                  <NavLink to="/examinations" className={navLinkClass} onClick={onClose}>
+                    <FileCheck2 className="h-4 w-4 shrink-0" />
+                    Examination Cell
                   </NavLink>
-                  <NavLink to="/admin/student-master" className={navLinkClass} onClick={onClose}>
-                    <UserCog className="h-4 w-4 shrink-0" />
-                    Student Master
-                  </NavLink>
-                  <NavLink to="/admin/student-mapping" className={navLinkClass} onClick={onClose}>
-                    <Users className="h-4 w-4 shrink-0" />
-                    Student Mapping
-                  </NavLink>
-                  <NavLink to="/admin/course-enrollment" className={navLinkClass} onClick={onClose}>
-                    <BookOpen className="h-4 w-4 shrink-0" />
-                    Course Enrollment
-                  </NavLink>
-                  <NavLink to="/admin/program-outcomes" className={navLinkClass} onClick={onClose}>
-                    <Target className="h-4 w-4 shrink-0" />
-                    Program Outcomes (OBE)
-                  </NavLink>
+                  {hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin') && (
+                    <>
+                      <NavLink to="/admin/academic-structure" className={navLinkClass} onClick={onClose}>
+                        <Building2 className="h-4 w-4 shrink-0" />
+                        Academic Structure
+                      </NavLink>
+                      <NavLink to="/admin/student-master" className={navLinkClass} onClick={onClose}>
+                        <UserCog className="h-4 w-4 shrink-0" />
+                        Student Master
+                      </NavLink>
+                      <NavLink to="/admin/student-mapping" className={navLinkClass} onClick={onClose}>
+                        <Users className="h-4 w-4 shrink-0" />
+                        Student Mapping
+                      </NavLink>
+                      <NavLink to="/admin/course-enrollment" className={navLinkClass} onClick={onClose}>
+                        <BookOpen className="h-4 w-4 shrink-0" />
+                        Course Enrollment
+                      </NavLink>
+                      <NavLink to="/admin/program-outcomes" className={navLinkClass} onClick={onClose}>
+                        <Target className="h-4 w-4 shrink-0" />
+                        Program Outcomes (OBE)
+                      </NavLink>
+                      <NavLink to="/admin/teachers" className={navLinkClass} onClick={onClose}>
+                        <GraduationCap className="h-4 w-4 shrink-0" />
+                        Teacher Management
+                      </NavLink>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -184,8 +197,8 @@ export default function Sidebar({ open, onClose }) {
                   Settings
                 </NavLink>
                 <NavLink to="/notifications" className={navLinkClass} onClick={onClose}>
-                  <HelpCircle className="h-4 w-4 shrink-0" />
-                  Help &amp; Support
+                  <Bell className="h-4 w-4 shrink-0" />
+                  Notifications
                 </NavLink>
                 {hasRole('Admin') && (
                   <NavLink to="/admin" className={navLinkClass} onClick={onClose}>

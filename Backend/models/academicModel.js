@@ -290,7 +290,7 @@ module.exports = {
 // ---------- Class Students (Student ↔ Class) ----------
 const getStudentsForClass = async (classId) => {
   const [rows] = await pool.query(
-    `SELECT st.id, st.registration_number, st.roll_number, st.roll_no, st.name, st.email, st.status
+    `SELECT st.id, st.registration_number, st.roll_number, st.name, st.email, st.status
      FROM class_students cs
      JOIN students st ON st.id = cs.student_id
      WHERE cs.class_id = ?
@@ -336,7 +336,7 @@ module.exports = {
 // ---------- Course Enrollment ----------
 const getEnrolledStudentsForCourse = async (courseId) => {
   const [rows] = await pool.query(
-    `SELECT st.id, st.registration_number, st.roll_number, st.roll_no, st.univ_roll_no, st.name, st.email, st.status
+    `SELECT st.id, st.registration_number, st.roll_number, st.name, st.email, st.status
      FROM course_enrollments ce
      JOIN students st ON st.id = ce.student_id
      WHERE ce.course_id = ?

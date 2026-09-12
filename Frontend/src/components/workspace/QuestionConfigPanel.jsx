@@ -1,9 +1,13 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash2, Save, Loader2, ClipboardList } from 'lucide-react';
+import { Plus, Trash2, Save, Loader2, ClipboardList, Lock } from 'lucide-react';
 
 // Teacher-controlled Question Paper Configuration — the single place question count, question
-// maximum marks, and question -> CO mapping are set. Nothing elsewhere in the app invents a
-// default mapping; Marks Entry only ever reads what was explicitly saved here.
+// maximum marks, and question -> CO mapping are set for a manually-configured exam component.
+// Nothing elsewhere in the app invents a default mapping; Marks Entry only ever reads what was
+// explicitly saved here. `locked` is distinct from `readOnly` (Viewer role): it means this
+// component's active questions came from an Examination-Cell-APPROVED paper, so the server
+// itself now refuses writes here (see courseRoutes.js isLockedByApprovedPaper) — corrections
+// go through paper review / a corrected re-upload, never this panel.
 export default function QuestionConfigPanel({
   courseOutcomes,
   isInternal,
@@ -15,7 +19,9 @@ export default function QuestionConfigPanel({
   savingQuestions,
   maxAllowed = 50,
   readOnly = false,
+  locked = false,
 }) {
+  const effectiveReadOnly = readOnly || locked;
   const totalMarks = draftQuestions.reduce((sum, q) => sum + (parseFloat(q.max_marks) || 0), 0);
 
   const allocationByCoId = new Map();
@@ -31,7 +37,7 @@ export default function QuestionConfigPanel({
           <ClipboardList className="h-4 w-4 text-primary" />
           Question Paper Configuration
         </h4>
-        {!readOnly && (
+        {!effectiveReadOnly && (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -54,6 +60,13 @@ export default function QuestionConfigPanel({
         )}
       </div>
 
+      {locked && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-700">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>This paper was approved through the Examination Cell workflow — question configuration is locked. Corrections go through paper review, or a corrected re-upload after rejection.</span>
+        </div>
+      )}
+
       {courseOutcomes.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">Add at least one Course Outcome in Setup & Configs first.</p>
       ) : draftQuestions.length === 0 ? (
@@ -67,7 +80,7 @@ export default function QuestionConfigPanel({
                   <th className="border-b border-r border-border px-3 py-2 text-left text-xs">Question</th>
                   <th className="border-b border-r border-border px-3 py-2 text-left text-xs">Course Outcome</th>
                   <th className="border-b border-r border-border px-3 py-2 text-left text-xs">Maximum Marks</th>
-                  {!readOnly && <th className="border-b border-border px-3 py-2 text-center text-xs">Remove</th>}
+                  {!effectiveReadOnly && <th className="border-b border-border px-3 py-2 text-center text-xs">Remove</th>}
                 </tr>
               </thead>
               <tbody>
@@ -83,7 +96,7 @@ export default function QuestionConfigPanel({
                       <td className="border-r border-border px-3 py-2 font-semibold text-foreground">Q{q.question_number}</td>
                       <td className="border-r border-border px-3 py-2">
                         <select
-                          disabled={readOnly}
+                          disabled={effectiveReadOnly}
                           value={q.co_id || ''}
                           onChange={(e) => updateQuestion(idx, 'co_id', parseInt(e.target.value, 10))}
                           className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
@@ -98,13 +111,13 @@ export default function QuestionConfigPanel({
                         <input
                           type="number"
                           min="1"
-                          disabled={readOnly}
+                          disabled={effectiveReadOnly}
                           value={q.max_marks}
                           onChange={(e) => updateQuestion(idx, 'max_marks', e.target.value)}
                           className="w-24 rounded-lg border border-input bg-background px-2 py-1.5 text-center text-xs font-semibold text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                         />
                       </td>
-                      {!readOnly && (
+                      {!effectiveReadOnly && (
                         <td className="px-3 py-2 text-center">
                           <button type="button" onClick={() => removeQuestion(idx)} className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive" title="Remove question">
                             <Trash2 className="h-3.5 w-3.5" />

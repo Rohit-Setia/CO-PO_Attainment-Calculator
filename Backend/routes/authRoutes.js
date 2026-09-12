@@ -7,6 +7,10 @@ const {
   getTeacherProfile,
   listUsers,
   updateUser,
+  requestPasswordSetup,
+  confirmPasswordSetup,
+  forgotPassword,
+  resetPassword,
 } = require('../controllers/authController');
 const validateRequest = require('../middlewares/validateRequest');
 const protect = require('../middlewares/authMiddleware');
@@ -22,6 +26,17 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many attempts. Please try again in a few minutes.' },
+});
+
+// Stricter throttle for the password-reset endpoints so reset emails cannot be
+// requested without limit (email-bombing / token-stuffing protection). The default
+// is intentionally low; PASSWORD_RESET_RATE_LIMIT lets an operator tune it per env.
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.PASSWORD_RESET_RATE_LIMIT || 5),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many password reset attempts. Please try again in a few minutes.' },
 });
 
 router.post(
@@ -52,6 +67,63 @@ router.post(
 );
 
 router.get('/auth/dashboard', protect, getTeacherProfile);
+
+// ── Password setup (bulk-import credential flow) — public endpoints ──────────
+// Request endpoint is rate-limited like login to prevent email-bombing.
+
+// POST /api/auth/password-setup/request — { email }
+router.post(
+  '/auth/password-setup/request',
+  authLimiter,
+  [body('email').trim().isEmail().withMessage('Valid email is required').normalizeEmail()],
+  validateRequest,
+  requestPasswordSetup,
+);
+
+// POST /api/auth/password-setup/confirm — { token, password }
+router.post(
+  '/auth/password-setup/confirm',
+  [
+    body('token').trim().notEmpty().withMessage('Token is required'),
+    body('password')
+      .isLength({ min: 6 })
+      .withMessage('Password must be at least 6 characters')
+      .matches(/^(?=.*[A-Za-z])(?=.*\d).+$/)
+      .withMessage('Password must contain at least one letter and one number'),
+  ],
+  validateRequest,
+  confirmPasswordSetup,
+);
+
+// ── HOD / Administrator self-service password reset — public endpoints ───────
+// Rate-limited to prevent email-bombing. The controller enforces that ONLY Admin
+// (Administrator) and Moderator (HOD) accounts are eligible; teachers and every
+// other role receive a generic response and no email.
+
+// POST /api/auth/forgot-password — { email }
+router.post(
+  '/auth/forgot-password',
+  passwordResetLimiter,
+  [body('email').trim().isEmail().withMessage('Valid email is required').normalizeEmail()],
+  validateRequest,
+  forgotPassword,
+);
+
+// POST /api/auth/reset-password — { token, password }
+router.post(
+  '/auth/reset-password',
+  passwordResetLimiter,
+  [
+    body('token').trim().notEmpty().withMessage('Token is required'),
+    body('password')
+      .isLength({ min: 6 })
+      .withMessage('Password must be at least 6 characters')
+      .matches(/^(?=.*[A-Za-z])(?=.*\d).+$/)
+      .withMessage('Password must contain at least one letter and one number'),
+  ],
+  validateRequest,
+  resetPassword,
+);
 
 // ── Admin-only user management ───────────────────────────────────────────────
 

@@ -76,6 +76,29 @@ const resolveTargetScope = async (entityType, req) => {
       );
       return row ? { schoolId: row.school_id, departmentId: row.department_id } : null;
     }
+    case 'paper': {
+      const id = req.params.id;
+      if (!id) return { schoolId: null, departmentId: null };
+      const [[row]] = await pool.query(
+        `SELECT d.school_id, d.id AS department_id, qp.course_id FROM question_papers qp
+         JOIN courses c ON c.id = qp.course_id
+         LEFT JOIN programs p ON p.id = c.program_id
+         LEFT JOIN departments d ON d.id = p.department_id WHERE qp.id = ?`,
+        [id],
+      );
+      return row ? { schoolId: row.school_id, departmentId: row.department_id, courseId: row.course_id } : null;
+    }
+    case 'course': {
+      const id = req.params.id || req.params.courseId || req.body.courseId;
+      if (!id) return { schoolId: null, departmentId: null };
+      const [[row]] = await pool.query(
+        `SELECT d.school_id, d.id AS department_id FROM courses c
+         LEFT JOIN programs p ON p.id = c.program_id
+         LEFT JOIN departments d ON d.id = p.department_id WHERE c.id = ?`,
+        [id],
+      );
+      return row ? { schoolId: row.school_id, departmentId: row.department_id } : null;
+    }
     default:
       return { schoolId: null, departmentId: null };
   }
@@ -134,6 +157,46 @@ const authorizeAcademicWrite = (entityType) => async (req, res, next) => {
   }
 };
 
+// authorizeExamWrite(entityType) — same scoping shape as authorizeAcademicWrite, but for
+// examination/question-paper routes, where (unlike academic-structure admin) Examination
+// Team legitimately has university-wide operational access alongside Admin/Moderator.
+// School Admin / Department Admin are scoped to their own school/department exactly as above.
+const authorizeExamWrite = (entityType) => async (req, res, next) => {
+  try {
+    const { role } = req.user;
+    if (role === 'Admin' || role === 'Moderator' || role === 'Examination Team') return next();
+
+    if (role !== 'School Admin' && role !== 'Department Admin') {
+      return res.status(403).json({ success: false, message: 'Forbidden: Only Admin, Moderator, Examination Team, School Admin, Department Admin can manage examinations.' });
+    }
+
+    const target = await resolveTargetScope(entityType, req);
+    if (target === null) {
+      return res.status(404).json({ success: false, message: 'Target entity not found.' });
+    }
+
+    if (role === 'School Admin') {
+      if (!req.user.school_id) {
+        return res.status(403).json({ success: false, message: 'Forbidden: your account has no School assigned.' });
+      }
+      if (String(target.schoolId) !== String(req.user.school_id)) {
+        return res.status(403).json({ success: false, message: 'Forbidden: outside your School.' });
+      }
+      return next();
+    }
+
+    if (!req.user.department_id) {
+      return res.status(403).json({ success: false, message: 'Forbidden: your account has no Department assigned.' });
+    }
+    if (String(target.departmentId) !== String(req.user.department_id)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: outside your Department.' });
+    }
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+};
+
 // Read-side scoping: narrows a caller-supplied filter object so a School/Department Admin's
 // GET requests can never see rows outside their scope, regardless of query params they pass.
 // Admin/Examination Team/Teacher/Viewer are returned unchanged (this only tightens, never
@@ -152,4 +215,4 @@ const applyReadScope = (user, filters = {}) => {
   return filters;
 };
 
-module.exports = { authorizeAcademicWrite, applyReadScope, resolveTargetScope };
+module.exports = { authorizeAcademicWrite, authorizeExamWrite, applyReadScope, resolveTargetScope };

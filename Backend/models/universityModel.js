@@ -178,8 +178,6 @@ const createUniversityTables = async () => {
 const migrateLegacyUniversityData = async () => {
   // Extract distinct schools and insert them
   const [courses] = await pool.query('SELECT DISTINCT school, department, academic_year FROM courses');
-  
-  if (courses.length === 0) return;
 
   for (const course of courses) {
     if (!course.school) continue;

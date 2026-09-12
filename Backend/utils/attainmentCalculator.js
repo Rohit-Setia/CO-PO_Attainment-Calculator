@@ -51,7 +51,7 @@ function computeAttainmentForComponent(students, courseOutcomes, config, isInter
 // Main entrypoint. All shapes come from the normalized schema (course_outcomes, co_po_values) —
 // nothing here assumes a fixed CO count, a fixed CO1..CO6 range, or sequential numbering.
 //
-// Formula (unchanged from the original implementation — see docs/calculation-methodology.md):
+// Formula (unchanged from the original implementation — see README "Calculation Methodology"):
 //   1. Per CO, per component: % of students meeting threshold -> level 0-3
 //   2. Per CO combined: internalLevel*(internalWeight/100) + externalLevel*(externalWeight/100)
 //   3. Overall course attainment: average of combined levels across all active COs

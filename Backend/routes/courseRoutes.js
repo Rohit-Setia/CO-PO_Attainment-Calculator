@@ -40,7 +40,9 @@ const {
   MAX_QUESTIONS_PER_EXAM,
   getQuestionConfigs,
   replaceQuestionConfigs,
+  isLockedByApprovedPaper,
 } = require('../models/questionConfigModel');
+const { findBlockingSubmission } = require('../models/marksSubmissionModel');
 const { calculateCourseAttainment } = require('../utils/attainmentCalculator');
 const { distributeTotalMarksToCos, calculateExamTotalMax } = require('../utils/marksDistribution');
 const pool = require('../config/db');
@@ -491,8 +493,11 @@ router.get('/courses/:id/questions', protect, checkCoursePermission(['Teacher', 
     const course = await loadCourseOr404(req, res);
     if (!course) return;
     const examType = req.query.examType === 'ETT' ? 'ETT' : 'MTT';
-    const questions = await getQuestionConfigs(course.id, examType);
-    res.json({ success: true, data: questions, maxAllowed: MAX_QUESTIONS_PER_EXAM });
+    // questionPaperId narrows to one paper set — required only when a course carries
+    // more than one set for the same component (Set 1 for CSE-A, Set 2 for CSE-B).
+    const questions = await getQuestionConfigs(course.id, examType, req.query.questionPaperId);
+    const locked = await isLockedByApprovedPaper(course.id, examType);
+    res.json({ success: true, data: questions, maxAllowed: MAX_QUESTIONS_PER_EXAM, locked });
   } catch (err) {
     next(err);
   }
@@ -513,6 +518,12 @@ router.post('/courses/:id/questions', protect, checkCoursePermission(['Teacher']
     }
     if (!Array.isArray(questions)) {
       return res.status(400).json({ success: false, message: 'questions must be an array' });
+    }
+    if (await isLockedByApprovedPaper(course.id, examType)) {
+      return res.status(403).json({
+        success: false,
+        message: `This ${examType} question paper was approved through the Examination Cell workflow and is locked. Corrections go through paper review, or a corrected re-upload after rejection — not manual configuration.`,
+      });
     }
 
     const outcomes = await getActiveOutcomes(course.id);
@@ -718,6 +729,27 @@ router.post('/courses/:id/marks', protect, checkCoursePermission(['Teacher']), a
     }
     if (!Array.isArray(students)) {
       return res.status(400).json({ success: false, message: 'students must be an array' });
+    }
+
+    // Examination-Cell workflow guard: once an approved paper's marks have been submitted
+    // or locked, an ordinary Teacher can no longer write here — only an overseer (Admin/
+    // Moderator/Examination Team/School Admin/Department Admin) may, via the dedicated
+    // reopen endpoint first. Courses with no approved paper (the pre-existing manual-entry
+    // flow) are completely unaffected.
+    const OVERSEER_ROLES = ['Admin', 'Moderator', 'Examination Team', 'School Admin', 'Department Admin'];
+    if (!OVERSEER_ROLES.includes(req.user.role)) {
+      const [[activePaper]] = await pool.query(
+        "SELECT id FROM question_papers WHERE course_id = ? AND exam_type = ? AND status = 'APPROVED' ORDER BY version DESC LIMIT 1",
+        [course.id, examType],
+      );
+      if (activePaper) {
+        // classId narrows the gate to one section's submission — without it, any locked
+        // section on this paper freezes the write (see findBlockingSubmission).
+        const submission = await findBlockingSubmission(activePaper.id, req.body.classId);
+        if (submission) {
+          return res.status(400).json({ success: false, message: `Marks are ${submission.status.toLowerCase().replace('_', ' ')} for this paper and can no longer be edited. Ask an Administrator or Examination Cell member to reopen it.` });
+        }
+      }
     }
 
     const outcomes = await getActiveOutcomes(course.id);

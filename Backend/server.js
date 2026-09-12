@@ -9,6 +9,8 @@ const dashboardRouter = require('./routes/dashboardRoutes');
 const academicRouter = require('./routes/academicRoutes');
 const studentRouter = require('./routes/studentRoutes');
 const obeRouter = require('./routes/obeRoutes');
+const teacherRouter = require('./routes/teacherRoutes');
+const examinationRouter = require('./routes/examinationRoutes');
 const errorHandler = require('./middlewares/errorMiddleware');
 
 const { createUsersTable, addRoleScopingColumns } = require('./models/userModel');
@@ -32,6 +34,8 @@ const { createStudentTables, migrateLegacyStudentData } = require('./models/stud
 const { createAdminAuditTable } = require('./models/adminAuditModel');
 const { runPendingMigrations } = require('./utils/migrationRunner');
 const { ensureIndex } = require('./models/platformMigrations');
+require('./models/examWorkflowMigrations');
+require('./models/examAllocationMigrations');
 
 const app = express();
 let httpServer;
@@ -111,6 +115,8 @@ app.use('/api', dashboardRouter);
 app.use('/api', academicRouter);
 app.use('/api', studentRouter);
 app.use('/api', obeRouter);
+app.use('/api/admin', teacherRouter);
+app.use('/api', examinationRouter);
 
 app.use(errorHandler);
 
@@ -139,10 +145,10 @@ createUsersTable()
   .then(() => addPhase7DuplicatePreventionConstraints())
   .then(() => createProgramOutcomesTable())
   .then(() => seedDefaultProgramOutcomes())
-  .then(() => createStudentTables())
-  .then(() => addStudentContextUniqueness())
   .then(() => createCoursesTable())
   .then(() => addCourseStatusColumn())
+  .then(() => createStudentTables())
+  .then(() => addStudentContextUniqueness())
   .then(() => migrateLegacyUniversityData())
   .then(() => normalizeLegacyStudentsTable())
   .then(() => normalizeProgramsTable())

@@ -2,16 +2,15 @@ const pool = require('../config/db');
 const { getActiveOutcomes } = require('./courseOutcomeModel');
 
 const createMappingTables = async () => {
-  // 1. Drop conflicting legacy table if it has subject_id/co_id structure
+  // 1. Refuse incompatible legacy schemas instead of deleting existing data.
   try {
     const [cols] = await pool.query('SHOW COLUMNS FROM co_po_mappings');
     const hasLegacyColumns = cols.some(col => col.Field === 'subject_id' || col.Field === 'co_id');
     if (hasLegacyColumns) {
-      console.log('Dropping legacy co_po_mappings table to match new schema...');
-      await pool.query('DROP TABLE IF EXISTS co_po_mappings');
+      throw new Error('Incompatible legacy co_po_mappings schema detected. Back up the database and run an approved migration before starting this version.');
     }
   } catch (err) {
-    // Table doesn't exist yet, which is fine
+    if (err.code !== 'ER_NO_SUCH_TABLE') throw err;
   }
 
   // 2. Create new co_po_mappings table
@@ -49,11 +48,10 @@ const createMappingTables = async () => {
     const [cols] = await pool.query('SHOW COLUMNS FROM course_configs');
     const hasCol = cols.some(col => col.Field === 'questions_config_internal');
     if (!hasCol) {
-      console.log('Dropping legacy course_configs table to match new schema with questions config...');
-      await pool.query('DROP TABLE IF EXISTS course_configs');
+      throw new Error('Incompatible legacy course_configs schema detected. Back up the database and run an approved migration before starting this version.');
     }
   } catch (err) {
-    // Table doesn't exist, which is fine
+    if (err.code !== 'ER_NO_SUCH_TABLE') throw err;
   }
 
   const coMaxIntColumns = [];

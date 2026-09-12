@@ -13,11 +13,10 @@ const createMarksTable = async () => {
     const hasLegacyColumns = cols.some(col => col.Field === 'assessment_id');
     const hasQuestionMarksCol = cols.some(col => col.Field === 'question_marks');
     if (hasLegacyColumns || !hasQuestionMarksCol) {
-      console.log('Dropping legacy/outdated student_marks table...');
-      await pool.query('DROP TABLE IF EXISTS student_marks');
+      throw new Error('Incompatible legacy student_marks schema detected. Back up the database and run an approved migration before starting this version.');
     }
   } catch (err) {
-    // Table doesn't exist yet, which is fine
+    if (err.code !== 'ER_NO_SUCH_TABLE') throw err;
   }
 
   // 2. Create new student_marks table

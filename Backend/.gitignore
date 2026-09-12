@@ -16,6 +16,11 @@ dist-ssr
 .env
 .env.*
 !.env.example
+certs/*.pem
+certs/*.crt
+
+# Uploaded question-paper files — user content, not source
+uploads/
 
 # Editor directories and files
 .vscode/*
