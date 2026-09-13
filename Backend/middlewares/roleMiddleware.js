@@ -21,6 +21,12 @@ const MODERATOR_ROLES = ['Admin', 'Moderator', 'School Admin', 'Department Admin
 const ACADEMIC_WRITE_ROLES = ['Admin', 'Moderator', 'School Admin', 'Department Admin'];
 
 /**
+ * COURSE_STRUCTURE_ROLES — roles that can edit course setups, outcomes, mapping, and attainment configs.
+ * Teachers are restricted to marks entry and question-wise assessments only.
+ */
+const COURSE_STRUCTURE_ROLES = ['Admin', 'Moderator', 'School Admin', 'Department Admin', 'Examination Team'];
+
+/**
  * authorizeRoles(...allowedRoles)
  * A simple role-level gate. Reads req.user.role from the JWT (set by authMiddleware).
  * Usage: router.post('/some-route', protect, authorizeRoles('Admin', 'Moderator'), handler)
@@ -102,4 +108,4 @@ const checkCoursePermission = (requiredAssignedRoles = ['Teacher', 'Viewer']) =>
   }
 };
 
-module.exports = { authorizeRoles, checkCoursePermission, ADMIN_ROLES, MODERATOR_ROLES, ACADEMIC_WRITE_ROLES };
+module.exports = { authorizeRoles, checkCoursePermission, ADMIN_ROLES, MODERATOR_ROLES, ACADEMIC_WRITE_ROLES, COURSE_STRUCTURE_ROLES };

@@ -30,7 +30,6 @@ import ConfigTab from '../components/workspace/ConfigTab';
 import MappingTab from '../components/workspace/MappingTab';
 import MarksTab from '../components/workspace/MarksTab';
 import AttainmentTab from '../components/workspace/AttainmentTab';
-import StudentManagementPanel from '../components/workspace/StudentManagementPanel';
 
 const emptyStudent = () => ({ name: '', roll: '', reg_no: '', totalMarks: 0, coMarks: {}, questionMarks: {} });
 
@@ -41,6 +40,7 @@ export default function CourseWorkspace() {
   const navigate = useNavigate();
   const { hasRole } = useAuth();
   const isReadOnly = hasRole('Viewer');
+  const canManageCourseStructure = hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin', 'Examination Team');
   const [searchParams] = useSearchParams();
 
   const [course, setCourse] = useState(null);
@@ -56,14 +56,17 @@ export default function CourseWorkspace() {
 
   // Supports deep-linking from the sidebar's course-picker pages, e.g. /courses/3?tab=marks
   const requestedTab = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState(VALID_TABS.includes(requestedTab) ? requestedTab : 'config');
+  const initialTab = canManageCourseStructure
+    ? (VALID_TABS.includes(requestedTab) ? requestedTab : 'config')
+    : 'marks';
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingQuestions, setSavingQuestions] = useState(false);
   const [error, setError] = useState('');
 
   const [activeExamType, setActiveExamType] = useState('MTT');
-  const [entryMode, setEntryMode] = useState('co');
+  const [entryMode, setEntryMode] = useState(canManageCourseStructure ? 'co' : 'question');
   const [students, setStudents] = useState([]);
   const [draftQuestions, setDraftQuestions] = useState([]);
   const [importIssues, setImportIssues] = useState([]);
@@ -124,7 +127,7 @@ export default function CourseWorkspace() {
     marksDirtyRef.current = false;
 
     const qs = questionConfigs[activeExamType] || [];
-    setEntryMode(qs.length > 0 ? 'question' : 'co');
+    setEntryMode(canManageCourseStructure ? (qs.length > 0 ? 'question' : 'co') : 'question');
     setDraftQuestions(qs.map((q) => ({ key: q.id, question_number: q.question_number, co_id: q.co_id, max_marks: q.max_marks })));
   }, [activeExamType, marks, questionConfigs]);
 
@@ -529,7 +532,7 @@ export default function CourseWorkspace() {
         ? `${hierarchy.schoolName} • ${hierarchy.departmentName} • ${hierarchy.programName} • Sem ${course.semester} (${hierarchy.sessionName || course.academic_year})`
         : `${course.school} • ${course.department} • Sem ${course.semester} (${course.academic_year})`
       : '',
-    actions: course ? (
+    actions: course && canManageCourseStructure ? (
       <>
         <button
           onClick={handleExportJson}
@@ -655,17 +658,6 @@ export default function CourseWorkspace() {
             </div>
           )}
 
-          {/* Phase 10 — Student Management for this course's academic context. The Teacher
-              uploads only student-specific data; the backend derives School/Department/
-              Program/Session/Semester from the course. */}
-          <StudentManagementPanel
-            courseId={id}
-            course={course}
-            hierarchy={hierarchy}
-            readOnly={isReadOnly}
-            onStudentsChanged={loadAllData}
-          />
-
           <Tabs value={activeTab} onValueChange={(tab) => {
             setActiveTab(tab);
             if (tab === 'attainment') {
@@ -673,41 +665,51 @@ export default function CourseWorkspace() {
             }
           }}>
             <TabsList className="mb-8">
-              <TabsTrigger value="config"><Sliders className="h-4 w-4" /> Setup & Configs</TabsTrigger>
-              <TabsTrigger value="mapping"><Grid className="h-4 w-4" /> Articulation Matrix</TabsTrigger>
+              {canManageCourseStructure && (
+                <>
+                  <TabsTrigger value="config"><Sliders className="h-4 w-4" /> Setup & Configs</TabsTrigger>
+                  <TabsTrigger value="mapping"><Grid className="h-4 w-4" /> Articulation Matrix</TabsTrigger>
+                </>
+              )}
               <TabsTrigger value="marks"><Users className="h-4 w-4" /> Marks Entry</TabsTrigger>
-              <TabsTrigger value="attainment"><TrendingUp className="h-4 w-4" /> Attainment & Charts</TabsTrigger>
+              {canManageCourseStructure && (
+                <TabsTrigger value="attainment"><TrendingUp className="h-4 w-4" /> Attainment & Charts</TabsTrigger>
+              )}
             </TabsList>
 
-            <TabsContent value="config">
-              <ConfigTab
-                courseId={id}
-                course={course}
-                config={config}
-                courseOutcomes={courseOutcomes}
-                saving={saving}
-                handleConfigChange={handleConfigChange}
-                handleCoFieldChange={handleCoFieldChange}
-                saveConfigAndCos={saveConfigAndCos}
-                onOutcomesChanged={loadAllData}
-                onCourseChanged={loadAllData}
-                readOnly={isReadOnly}
-              />
-            </TabsContent>
+            {canManageCourseStructure && (
+              <TabsContent value="config">
+                <ConfigTab
+                  courseId={id}
+                  course={course}
+                  config={config}
+                  courseOutcomes={courseOutcomes}
+                  saving={saving}
+                  handleConfigChange={handleConfigChange}
+                  handleCoFieldChange={handleCoFieldChange}
+                  saveConfigAndCos={saveConfigAndCos}
+                  onOutcomesChanged={loadAllData}
+                  onCourseChanged={loadAllData}
+                  readOnly={isReadOnly}
+                />
+              </TabsContent>
+            )}
 
-            <TabsContent value="mapping">
-              <MappingTab
-                courseOutcomes={courseOutcomes}
-                mappingValues={mapping.values}
-                mappingAverages={mapping.averages}
-                programOutcomes={mapping.programOutcomes}
-                saving={saving}
-                handleMappingChange={handleMappingChange}
-                handleBulkMappingChange={handleBulkMappingChange}
-                saveMappingMatrix={saveMappingMatrix}
-                readOnly={isReadOnly}
-              />
-            </TabsContent>
+            {canManageCourseStructure && (
+              <TabsContent value="mapping">
+                <MappingTab
+                  courseOutcomes={courseOutcomes}
+                  mappingValues={mapping.values}
+                  mappingAverages={mapping.averages}
+                  programOutcomes={mapping.programOutcomes}
+                  saving={saving}
+                  handleMappingChange={handleMappingChange}
+                  handleBulkMappingChange={handleBulkMappingChange}
+                  saveMappingMatrix={saveMappingMatrix}
+                  readOnly={isReadOnly}
+                />
+              </TabsContent>
+            )}
 
             <TabsContent value="marks">
               <MarksTab
@@ -741,14 +743,16 @@ export default function CourseWorkspace() {
               />
             </TabsContent>
 
-            <TabsContent value="attainment">
-              <AttainmentTab
-                attainment={attainment}
-                courseOutcomes={courseOutcomes}
-                programOutcomes={mapping.programOutcomes}
-                config={config}
-              />
-            </TabsContent>
+            {canManageCourseStructure && (
+              <TabsContent value="attainment">
+                <AttainmentTab
+                  attainment={attainment}
+                  courseOutcomes={courseOutcomes}
+                  programOutcomes={mapping.programOutcomes}
+                  config={config}
+                />
+              </TabsContent>
+            )}
           </Tabs>
 
           {pendingExamType && (

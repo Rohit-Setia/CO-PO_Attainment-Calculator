@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAcademicFilter, filterCoursesByAcademicSelection } from '../context/AcademicFilterContext';
 import { usePageHeader } from '../context/PageHeaderContext';
 import {
-  BookOpen, Plus, Loader2, RefreshCw, Upload, CheckCircle2, X, Layers, ListChecks,
+  BookOpen, Plus, Loader2, RefreshCw, Upload, CheckCircle2, X, Layers, ListChecks, Building2,
 } from 'lucide-react';
 
 import CourseCard from '../components/dashboard/CourseCard';
@@ -180,6 +180,21 @@ const CoursesPage = () => {
     return { total, fullyConfigured, inProgress, totalCos };
   }, [visibleCourses]);
 
+  const canManageCourses = hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin');
+
+  const coursesBySchool = useMemo(() => {
+    const groups = {};
+    visibleCourses.forEach((c) => {
+      const rawSchool = c.schoolName || c.school;
+      const schoolName = rawSchool ? rawSchool.trim() : 'General / Interdisciplinary';
+      if (!groups[schoolName]) {
+        groups[schoolName] = [];
+      }
+      groups[schoolName].push(c);
+    });
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+  }, [visibleCourses]);
+
   const handleDeleteCourse = (id, e) => {
     e.stopPropagation();
     setPendingDeleteId(id);
@@ -244,27 +259,23 @@ const CoursesPage = () => {
     setImportSuccess('');
   };
 
-  const headerActions = (
+  const headerActions = canManageCourses ? (
     <>
-      {!hasRole('Viewer') && (
-        <label
-          className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-secondary"
-          title="Import a course from another teacher's JSON snapshot"
-        >
-          <Upload className="h-3.5 w-3.5" /> Import
-          <input ref={importInputRef} type="file" accept=".json,application/json" onChange={handleImportFile} className="hidden" />
-        </label>
-      )}
-      {hasRole('Admin', 'Examination Team', 'Teacher') && (
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary-hover"
-        >
-          <Plus className="h-4 w-4" /> Create Course
-        </button>
-      )}
+      <label
+        className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-secondary"
+        title="Import a course from another teacher's JSON snapshot"
+      >
+        <Upload className="h-3.5 w-3.5" /> Import
+        <input ref={importInputRef} type="file" accept=".json,application/json" onChange={handleImportFile} className="hidden" />
+      </label>
+      <button
+        onClick={() => setShowModal(true)}
+        className="flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary-hover"
+      >
+        <Plus className="h-4 w-4" /> Create Course
+      </button>
     </>
-  );
+  ) : null;
 
   usePageHeader({ title: 'Courses & Programs', subtitle: 'Manage your courses and CO-PO configuration', actions: headerActions });
 
@@ -372,7 +383,7 @@ const CoursesPage = () => {
             title={courses.length === 0 ? 'No courses created yet' : 'No courses match the current filter'}
             description={courses.length === 0 ? 'Create your first subject course to start setting up CO-PO mappings and analyzing student performance outcomes.' : 'Try a different semester or session in the header filters.'}
             action={
-              courses.length === 0 && hasRole('Admin', 'Examination Team', 'Teacher') && (
+              courses.length === 0 && canManageCourses && (
                 <button
                   onClick={() => setShowModal(true)}
                   className="inline-flex items-center gap-2 rounded-xl border border-border bg-secondary px-5 py-2.5 font-medium text-secondary-foreground transition hover:bg-secondary/70"
@@ -383,15 +394,34 @@ const CoursesPage = () => {
             }
           />
         ) : (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {visibleCourses.map((course, i) => (
-              <CourseCard
-                key={course.id}
-                course={course}
-                index={i}
-                onClick={() => navigate(`/courses/${course.id}`)}
-                onDelete={(e) => handleDeleteCourse(course.id, e)}
-              />
+          <div className="space-y-10">
+            {coursesBySchool.map(([schoolName, schoolCourses]) => (
+              <div key={schoolName} className="space-y-4">
+                <div className="flex items-center gap-3 border-b border-border/60 pb-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Building2 className="h-4 w-4" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-semibold text-foreground">
+                      {schoolName}
+                    </h4>
+                    <span className="text-xs font-medium text-muted-foreground rounded-full bg-secondary px-2.5 py-0.5 border border-border">
+                      {schoolCourses.length} {schoolCourses.length === 1 ? 'course' : 'courses'}
+                    </span>
+                  </div>
+                </div>
+                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {schoolCourses.map((course, i) => (
+                    <CourseCard
+                      key={course.id}
+                      course={course}
+                      index={i}
+                      onClick={() => navigate(`/courses/${course.id}`)}
+                      onDelete={(e) => handleDeleteCourse(course.id, e)}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         )}

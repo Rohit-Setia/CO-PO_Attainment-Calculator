@@ -1,39 +1,42 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, BookOpen, Users, ClipboardList, Grid3x3, Target,
-  Calculator, FileBarChart, Upload, Settings, ShieldCheck, BarChart3,
+  LayoutDashboard, BookOpen, Users, ClipboardList, Target,
+  Settings, ShieldCheck, BarChart3,
   LogOut, X, Building2, UserCog, GraduationCap, FileCheck2, Bell,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-const NAV_SECTIONS = [
-  {
-    heading: 'Academic Program Management',
-    items: [
-      { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, end: true },
-      { label: 'Courses & Programs', to: '/courses', icon: BookOpen },
-      { label: 'Students', to: '/students', icon: Users },
-    ],
-  },
-  {
-    heading: 'Academic Records',
-    items: [
-      { label: 'Internal Marks', to: '/internal-marks', icon: ClipboardList },
-      { label: 'CO Mapping', to: '/co-mapping', icon: Grid3x3 },
-      { label: 'PO Mapping', to: '/po-mapping', icon: Target },
-      { label: 'CO-PO Calculation', to: '/co-po-calculation', icon: Calculator },
-      { label: 'My Examinations', to: '/my-examinations', icon: FileCheck2 },
-    ],
-  },
-  {
-    heading: 'Output',
-    items: [
-      { label: 'OBE Dashboard', to: '/obe-dashboard', icon: BarChart3 },
-      { label: 'Reports', to: '/reports', icon: FileBarChart },
-      { label: 'Upload Excel', to: '/upload-excel', icon: Upload },
-    ],
-  },
-];
+const getNavSections = (hasRole) => {
+  const isElevated = hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin', 'Examination Team');
+  const sections = [
+    {
+      heading: 'Academic Program Management',
+      items: [
+        { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, end: true },
+        { label: 'Courses & Programs', to: '/courses', icon: BookOpen },
+        { label: 'Students', to: '/students', icon: Users },
+      ],
+    },
+    {
+      heading: 'Academic Records',
+      items: [
+        { label: 'Internal Marks', to: '/internal-marks', icon: ClipboardList },
+        { label: 'My Examinations', to: '/my-examinations', icon: FileCheck2 },
+      ],
+    },
+  ];
+
+  if (isElevated) {
+    sections.push({
+      heading: 'Analytics',
+      items: [
+        { label: 'OBE Dashboard', to: '/obe-dashboard', icon: BarChart3 },
+      ],
+    });
+  }
+
+  return sections;
+};
 
 const navLinkClass = ({ isActive }) =>
   `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
@@ -116,7 +119,7 @@ export default function Sidebar({ open, onClose }) {
         >
 
           <div className="space-y-6">
-            {NAV_SECTIONS.map((section, i) => (
+            {getNavSections(hasRole).map((section, i) => (
               <div key={i}>
                 {section.heading && (
                   <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.15em] text-sidebar-muted/60">

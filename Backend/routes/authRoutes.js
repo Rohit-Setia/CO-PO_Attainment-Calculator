@@ -15,6 +15,7 @@ const {
 const validateRequest = require('../middlewares/validateRequest');
 const protect = require('../middlewares/authMiddleware');
 const { authorizeRoles } = require('../middlewares/roleMiddleware');
+const { searchFacultyUsers } = require('../models/userModel');
 
 const router = express.Router();
 
@@ -150,6 +151,20 @@ router.put(
   validateRequest,
   updateUser,
 );
+
+// GET /api/users/search?q=... — autocomplete active users/faculty for assignment
+router.get('/users/search', protect, async (req, res, next) => {
+  try {
+    const q = req.query.q || '';
+    if (!q.trim()) {
+      return res.json({ success: true, data: [] });
+    }
+    const results = await searchFacultyUsers(q, 10);
+    return res.json({ success: true, data: results });
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;
 

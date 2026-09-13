@@ -90,7 +90,7 @@ const barColor = (percent) => {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const { isDark } = useTheme();
   const {
     semester, session, availableSemesters, setAvailableSemesters, setAvailableSessions,
@@ -315,7 +315,9 @@ export default function Dashboard() {
           </div>
 
           {/* ── Data Quality Warnings ─────────────────────────────────────────── */}
-          <DataQualityPanel warnings={summary?.dataQualityWarnings || []} />
+          {hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin', 'Examination Team') && (
+            <DataQualityPanel warnings={summary?.dataQualityWarnings || []} />
+          )}
 
           {/* ── Charts row ─────────────────────────────────────────────────── */}
           <div className="grid gap-6 lg:grid-cols-2">

@@ -169,4 +169,47 @@ const buildPasswordResetEmail = ({ name, email, resetToken, expiresHours }) => {
   return { subject: 'Reset Your CT University OBE ERP Password', html };
 };
 
-module.exports = { sendMail, buildCredentialEmail, buildPasswordResetEmail, setupUrl, resetUrl, buildConfig, smtpEnabled };
+/**
+ * buildCourseAssignmentEmail — notification email sent when a user is assigned to a course.
+ */
+const buildCourseAssignmentEmail = ({ name, email, courseCode, courseName, role, assignedByName, courseUrl }) => {
+  const loginUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  const targetUrl = courseUrl || `${loginUrl}`;
+  const html = `<!doctype html>
+<html><body style="font-family:Segoe UI,Arial,sans-serif;background:#f8fafc;padding:24px;color:#0f172a">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden">
+    <div style="background:#1e3a8a;padding:16px 24px">
+      <h2 style="color:#fff;margin:0;font-size:18px">CT University OBE ERP</h2>
+    </div>
+    <div style="padding:24px">
+      <p style="margin:0 0 12px">Hello <b>${name || email}</b>,</p>
+      <p style="margin:0 0 16px">You have been assigned to the following course in the Outcome-Based Education (OBE) ERP system:</p>
+      <table style="font-size:14px;margin:0 0 16px;width:100%;border-collapse:collapse">
+        <tr><td style="padding:6px 0;color:#64748b;width:140px">Course Code</td><td style="padding:6px 0"><b>${courseCode || 'N/A'}</b></td></tr>
+        <tr><td style="padding:6px 0;color:#64748b">Course Name</td><td style="padding:6px 0"><b>${courseName || 'N/A'}</b></td></tr>
+        <tr><td style="padding:6px 0;color:#64748b">Assigned Role</td><td style="padding:6px 0"><span style="background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-weight:600">${role || 'Teacher'}</span></td></tr>
+        ${assignedByName ? `<tr><td style="padding:6px 0;color:#64748b">Assigned By</td><td style="padding:6px 0">${assignedByName}</td></tr>` : ''}
+      </table>
+      <p style="margin:20px 0;text-align:center">
+        <a href="${targetUrl}" style="display:inline-block;background:#1e3a8a;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600">Open Course Workspace</a>
+      </p>
+      <div style="background:#f1f5f9;border-radius:8px;padding:12px 16px;font-size:13px;color:#334155;margin-top:16px">
+        <b>What you can do next:</b>
+        <ol style="margin:6px 0 0;padding-left:20px">
+          <li>Review Course Outcomes (COs) and question mappings.</li>
+          <li>Enter student assessment marks (Question-wise or CO-wise).</li>
+          <li>Track CO-PO attainment levels and progress reports.</li>
+        </ol>
+      </div>
+      <p style="margin:16px 0 0;font-size:12px;color:#94a3b8">CT University OBE ERP — this is an automated message, please do not reply.</p>
+    </div>
+  </div>
+</body></html>`;
+
+  return {
+    subject: `Assigned to Course: ${courseCode ? courseCode + ' - ' : ''}${courseName || 'Course'}`,
+    html,
+  };
+};
+
+module.exports = { sendMail, buildCredentialEmail, buildPasswordResetEmail, buildCourseAssignmentEmail, setupUrl, resetUrl, buildConfig, smtpEnabled };

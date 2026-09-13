@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const protect = require('../middlewares/authMiddleware');
-const { checkCoursePermission, authorizeRoles } = require('../middlewares/roleMiddleware');
+const { checkCoursePermission, authorizeRoles, COURSE_STRUCTURE_ROLES } = require('../middlewares/roleMiddleware');
 const {
   createCourse,
   getCoursesByTeacher,
@@ -60,6 +60,8 @@ const {
 const { enrollStudentInAllContextCourses } = require('../models/studentMasterModel');
 const { getProgramOutcomesForCourse } = require('../models/programOutcomeModel');
 const { buildMarksEntryWorkbook, buildMarksFileName } = require('../utils/marksTemplate');
+const { notify } = require('../models/notificationModel');
+const { sendMail, buildCourseAssignmentEmail } = require('../services/emailService');
 
 const DEFAULT_CONFIG = {
   threshold_percent_internal: 40.0,
@@ -314,6 +316,42 @@ router.post('/courses/:id/assign', protect, checkCoursePermission(['Teacher']), 
     }
 
     await assignUserToCourse(courseId, targetUser.id, assigned_role);
+
+    // Send in-app notification and email to the assigned user
+    try {
+      const course = await getCourseById(courseId);
+      const courseTitle = course ? `${course.code} - ${course.name}` : `Course #${courseId}`;
+
+      await notify({
+        userId: targetUser.id,
+        type: 'course_assignment',
+        title: `Assigned to ${course?.code || 'Course'}`,
+        message: `You have been assigned as a ${assigned_role} for ${courseTitle} by ${req.user.name || req.user.email}.`,
+        relatedEntityType: 'course',
+        relatedEntityId: courseId,
+      });
+
+      const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+      const courseUrl = `${clientUrl}/courses/${courseId}`;
+      const emailContent = buildCourseAssignmentEmail({
+        name: targetUser.name,
+        email: targetUser.email,
+        courseCode: course?.code,
+        courseName: course?.name,
+        role: assigned_role,
+        assignedByName: req.user.name || req.user.email,
+        courseUrl,
+      });
+
+      await sendMail({
+        to: targetUser.email,
+        subject: emailContent.subject,
+        html: emailContent.html,
+      });
+    } catch (notifyErr) {
+      console.error('[courseRoutes:assign] notification/email dispatch error (non-fatal):', notifyErr.message);
+    }
+
     return res.json({
       success: true,
       message: `${targetUser.name} assigned as ${assigned_role} on this course.`,
@@ -355,7 +393,7 @@ router.get('/courses/:id/outcomes', protect, checkCoursePermission(['Teacher', '
   }
 });
 
-router.post('/courses/:id/outcomes', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+router.post('/courses/:id/outcomes', protect, authorizeRoles(...COURSE_STRUCTURE_ROLES), checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
     const course = await loadCourseOr404(req, res);
     if (!course) return;
@@ -370,7 +408,7 @@ router.post('/courses/:id/outcomes', protect, checkCoursePermission(['Teacher'])
   }
 });
 
-router.put('/courses/:id/outcomes/:coId', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+router.put('/courses/:id/outcomes/:coId', protect, authorizeRoles(...COURSE_STRUCTURE_ROLES), checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
     const course = await loadCourseOr404(req, res);
     if (!course) return;
@@ -388,7 +426,7 @@ router.put('/courses/:id/outcomes/:coId', protect, checkCoursePermission(['Teach
 
 // Archives (never hard-deletes) a CO. Reports back what still references it so the frontend can
 // show a clear confirmation — the archive itself always succeeds and preserves every reference.
-router.delete('/courses/:id/outcomes/:coId', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+router.delete('/courses/:id/outcomes/:coId', protect, authorizeRoles(...COURSE_STRUCTURE_ROLES), checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
     const course = await loadCourseOr404(req, res);
     if (!course) return;
@@ -470,7 +508,7 @@ router.get('/courses/:id/config', protect, checkCoursePermission(['Teacher', 'Vi
 });
 
 // Only saves threshold/weight settings now — CO descriptions/max-marks go through /outcomes
-router.post('/courses/:id/config', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+router.post('/courses/:id/config', protect, authorizeRoles(...COURSE_STRUCTURE_ROLES), checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
     const course = await loadCourseOr404(req, res);
     if (!course) return;
@@ -593,7 +631,7 @@ router.get('/courses/:id/mapping', protect, checkCoursePermission(['Teacher', 'V
 });
 
 // Body: { values: [{ co_id, po1..po12, pso1..pso3 }] }
-router.post('/courses/:id/mapping', protect, checkCoursePermission(['Teacher']), async (req, res, next) => {
+router.post('/courses/:id/mapping', protect, authorizeRoles(...COURSE_STRUCTURE_ROLES), checkCoursePermission(['Teacher']), async (req, res, next) => {
   try {
     const course = await loadCourseOr404(req, res);
     if (!course) return;
@@ -1001,6 +1039,9 @@ router.get('/courses/:id/attainment', protect, checkCoursePermission(['Teacher',
 // 6. Export full course as a portable JSON snapshot
 router.get('/courses/:id/export-json', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
+    if (req.user.role === 'Teacher') {
+      return res.status(403).json({ success: false, message: 'Teachers are not permitted to export course data.' });
+    }
     const course = await loadCourseOr404(req, res);
     if (!course) return;
 
