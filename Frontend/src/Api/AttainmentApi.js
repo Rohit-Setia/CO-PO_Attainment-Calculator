@@ -46,6 +46,7 @@ export const updateCourseStatus = (id, status) => axiosClient.put(`/courses/${id
 export const assignFacultyToCourse = (id, payload) => axiosClient.post(`/courses/${id}/assign`, payload);
 export const removeFacultyFromCourse = (id, userId) => axiosClient.delete(`/courses/${id}/assign/${userId}`);
 export const fetchCourseAssignments = (id) => axiosClient.get(`/courses/${id}/assignments`);
+export const searchFacultyUsers = (q) => axiosClient.get('/users/search', { params: { q } });
 
 // ── Course enrollment ──────────────────────────────────────────────────────
 export const fetchCourseEnrollment = (courseId) => axiosClient.get(`/courses/${courseId}/enrollment`);

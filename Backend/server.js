@@ -41,8 +41,6 @@ const app = express();
 let httpServer;
 let shutdownStarted = false;
 
-// API-only server, no HTML views — CSP default-src 'none' is safe and disables the
-// noisy cross-origin-resource-policy default that otherwise blocks the Excel file download.
 app.use(
   helmet({
     contentSecurityPolicy: { directives: { defaultSrc: ["'none'"] } },
@@ -50,10 +48,6 @@ app.use(
   }),
 );
 
-// Support one or more comma-separated origins via CLIENT_URL (e.g. for staging + prod).
-// Unlike a bare `origin: true`/wildcard, unlisted origins are rejected outright.
-// The localhost/127.0.0.1 bypass exists for local development only — in production
-// (NODE_ENV=production) ONLY the explicit CLIENT_URL allowlist is accepted.
 const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
   .split(',')

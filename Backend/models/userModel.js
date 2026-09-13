@@ -407,6 +407,23 @@ const updateTeacherProfile = async (id, {
   return result.affectedRows > 0;
 };
 
+// Search active/available faculty users for autocomplete assignment
+const searchFacultyUsers = async (query, limit = 10) => {
+  const trimmed = (query || '').trim();
+  if (!trimmed) return [];
+  const searchTerm = `%${trimmed}%`;
+  const [rows] = await pool.query(
+    `SELECT t.id, t.name, t.email, t.role, t.employee_id, t.designation, d.name AS department_name
+     FROM teachers t
+     LEFT JOIN departments d ON d.id = t.department_id
+     WHERE (t.name LIKE ? OR t.email LIKE ? OR t.employee_id LIKE ?)
+     ORDER BY t.name ASC
+     LIMIT ?`,
+    [searchTerm, searchTerm, searchTerm, Number(limit)],
+  );
+  return rows;
+};
+
 module.exports = {
   createUsersTable,
   addRoleScopingColumns,
@@ -427,4 +444,5 @@ module.exports = {
   invalidateActiveResetTokens,
   findUserRoleForReset,
   updateTeacherProfile,
+  searchFacultyUsers,
 };

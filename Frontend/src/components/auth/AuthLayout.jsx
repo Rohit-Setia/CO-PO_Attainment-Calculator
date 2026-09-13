@@ -2,12 +2,7 @@ import { Award } from 'lucide-react';
 import ThemeToggle from '../ui/ThemeToggle';
 
 const AuthLayout = ({ title, subtitle, children }) => (
-  <div className="relative min-h-screen bg-background px-4 py-10 flex items-center justify-center overflow-hidden">
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,hsl(var(--primary)/0.18),transparent)]"
-    />
-
+  <div className="relative min-h-screen bg-[#eaf2fb] dark:bg-background px-4 py-10 flex items-center justify-center overflow-hidden transition-colors">
     <div className="absolute right-4 top-4">
       <ThemeToggle />
     </div>
@@ -22,10 +17,18 @@ const AuthLayout = ({ title, subtitle, children }) => (
         </div>
       </div>
 
-      <div className="rounded-2xl border border-border bg-card p-6 shadow-xl sm:p-8">
-        <h1 className="text-2xl font-bold text-foreground">{title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
-        <div className="mt-6">{children}</div>
+      <div className="relative">
+        {/* Luminous glow effect behind login popup */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -inset-1 rounded-3xl bg-gradient-to-r from-blue-500/20 via-sky-400/20 to-indigo-500/20 blur-xl opacity-75 dark:opacity-30"
+        />
+
+        <div className="relative rounded-2xl border border-border/80 bg-card p-6 shadow-xl shadow-blue-500/5 dark:shadow-none sm:p-8 backdrop-blur-sm">
+          <h1 className="text-2xl font-bold text-foreground">{title}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+          <div className="mt-6">{children}</div>
+        </div>
       </div>
     </div>
   </div>

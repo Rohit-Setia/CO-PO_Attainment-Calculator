@@ -4,6 +4,7 @@ import QuestionWiseTable from "../QuestionWiseTable";
 import QuestionConfigPanel from "./QuestionConfigPanel";
 import EmptyState from "../ui/EmptyState";
 import { getCoWeightageBreakdown, calculateExamTotalMax } from "../../utils/marksDistribution";
+import { useAuth } from "../../context/AuthContext";
 
 const segmentBtn = (active) =>
   `rounded-xl border px-3 py-2 text-xs font-semibold transition text-center ${
@@ -45,6 +46,8 @@ export default function MarksTab({
   const contextStudents = hierarchy?.linked && studentsAutoLoaded;
   const weightages = getCoWeightageBreakdown(courseOutcomes, isInternal);
   const examTotalMax = calculateExamTotalMax(courseOutcomes, isInternal);
+  const { hasRole } = useAuth();
+  const canChooseEntryMode = hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin', 'Examination Team');
 
   return (
     <div className="space-y-6">
@@ -68,17 +71,24 @@ export default function MarksTab({
           <h4 className="border-b border-border pb-2 text-base font-bold text-foreground">
             Data Entry Mode
           </h4>
-          <div className="grid grid-cols-3 gap-2">
-            <button type="button" onClick={() => setEntryMode("co")} className={segmentBtn(entryMode === "co")}>
-              Direct CO-Wise
-            </button>
-            <button type="button" onClick={() => setEntryMode("question")} className={segmentBtn(entryMode === "question")}>
-              Question-Wise
-            </button>
-            <button type="button" onClick={() => setEntryMode("total")} className={segmentBtn(entryMode === "total")}>
-              Total Marks (Auto)
-            </button>
-          </div>
+          {canChooseEntryMode ? (
+            <div className="grid grid-cols-3 gap-2">
+              <button type="button" onClick={() => setEntryMode("co")} className={segmentBtn(entryMode === "co")}>
+                Direct CO-Wise
+              </button>
+              <button type="button" onClick={() => setEntryMode("question")} className={segmentBtn(entryMode === "question")}>
+                Question-Wise
+              </button>
+              <button type="button" onClick={() => setEntryMode("total")} className={segmentBtn(entryMode === "total")}>
+                Total Marks (Auto)
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span>Question-Wise Entry Mode</span>
+            </div>
+          )}
         </div>
       </div>
 

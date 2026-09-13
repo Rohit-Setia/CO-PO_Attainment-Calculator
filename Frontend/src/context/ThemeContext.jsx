@@ -4,12 +4,11 @@ const ThemeContext = createContext(null);
 
 const STORAGE_KEY = 'copo_theme';
 
-// The app has always rendered dark-only — default new/existing users to 'dark' so
-// nothing visually changes unless they explicitly opt into light mode.
+// Default new users to 'light' mode.
 const getInitialTheme = () => {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored === 'light' || stored === 'dark') return stored;
-  return 'dark';
+  return 'light';
 };
 
 export const ThemeProvider = ({ children }) => {

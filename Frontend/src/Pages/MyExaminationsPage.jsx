@@ -6,6 +6,7 @@ import PageTransition from '../components/ui/PageTransition';
 import EmptyState from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/badge';
 import { usePageHeader } from '../context/PageHeaderContext';
+import { useAuth } from '../context/AuthContext';
 import { fetchMyExamAssignments } from '../Api/examinationApi';
 
 const RESPONSIBILITY_LABEL = {
@@ -20,6 +21,7 @@ const RESPONSIBILITY_LABEL = {
 export default function MyExaminationsPage() {
   usePageHeader({ title: 'My Assigned Examinations', subtitle: 'Question papers and marks-entry work assigned to you' });
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
 
@@ -62,17 +64,21 @@ export default function MyExaminationsPage() {
               )}
             </div>
           </div>
-          <div className="mt-3 flex gap-2">
-            {isReviewResponsibility(a.responsibility) && (
-              <button type="button" onClick={() => navigate(`/examinations/papers/${a.question_paper_id}`)} className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(isReviewResponsibility(a.responsibility) || hasRole('Admin', 'Examination Team')) && (
+              <button
+                type="button"
+                onClick={() => navigate(`/examinations/papers/${a.question_paper_id}`)}
+                className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+              >
                 <ClipboardEdit className="h-4 w-4" /> Review Question Paper
               </button>
             )}
-            {a.responsibility === 'MARKS_ENTRY' && (
+            {(a.responsibility === 'MARKS_ENTRY' || (hasRole('Admin', 'Examination Team') && a.paper_status === 'APPROVED')) && (
               <button
                 type="button"
                 onClick={() => (a.paper_status === 'APPROVED' ? navigate(`/courses/${a.course_id}?tab=marks`) : navigate(`/examinations/papers/${a.question_paper_id}`))}
-                className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+                className="flex items-center gap-2 rounded-xl border border-border bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground hover:bg-secondary/80"
               >
                 <FileCheck2 className="h-4 w-4" /> {a.paper_status === 'APPROVED' ? 'Enter Marks' : 'View Paper Status'}
               </button>

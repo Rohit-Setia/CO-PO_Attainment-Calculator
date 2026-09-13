@@ -133,10 +133,10 @@ const countDistinctReviewers = async (questionPaperId) => {
 };
 
 // "My Assigned Examinations" — every responsibility this user holds, across all papers.
-// The marks_submissions join is NULL-safe on class so a class-scoped evaluator sees
-// their own class's marks status, not another section's.
-const getAssignmentsForUser = async (userId) => {
-  const [rows] = await pool.query(
+// Admins see all active question papers; teachers see direct assignments and all question
+// papers for courses they teach or are assigned to (with duty of MARKS_ENTRY).
+const getAssignmentsForUser = async (userId, userRole = 'Teacher') => {
+  const [explicitRows] = await pool.query(
     `SELECT pa.*, qp.status AS paper_status, qp.exam_type, qp.paper_set, qp.course_id,
             c.subject_name, c.course_code, c.semester, c.academic_year,
             ac.section, ${CLASS_LABEL_SQL} AS class_label,
@@ -153,7 +153,67 @@ const getAssignmentsForUser = async (userId) => {
      ORDER BY pa.assigned_at DESC`,
     [userId],
   );
-  return rows;
+
+  const seenPaperKeys = new Set(explicitRows.map((r) => `${r.question_paper_id}_${r.class_id || 'null'}`));
+
+  const isAdminOrExam = ['Admin', 'Examination Team'].includes(userRole);
+  if (isAdminOrExam) {
+    const [allPapers] = await pool.query(
+      `SELECT CONCAT('admin-', qp.id) AS id, qp.id AS question_paper_id,
+              CASE WHEN qp.status = 'APPROVED' THEN 'MARKS_ENTRY' ELSE 'PAPER_REVIEWER' END AS responsibility,
+              qp.created_at AS assigned_at, NULL AS class_id,
+              qp.status AS paper_status, qp.exam_type, qp.paper_set, qp.course_id,
+              c.subject_name, c.course_code, c.semester, c.academic_year,
+              NULL AS section, NULL AS class_label,
+              e.id AS examination_id, e.name AS examination_name,
+              ms.status AS marks_status
+       FROM question_papers qp
+       JOIN courses c ON c.id = qp.course_id
+       LEFT JOIN examinations e ON e.id = qp.examination_id
+       LEFT JOIN marks_submissions ms ON ms.question_paper_id = qp.id AND ms.class_id IS NULL
+       WHERE qp.superseded_by_id IS NULL
+       ORDER BY qp.created_at DESC`,
+    );
+
+    for (const paper of allPapers) {
+      const key = `${paper.question_paper_id}_null`;
+      if (!seenPaperKeys.has(key)) {
+        explicitRows.push(paper);
+        seenPaperKeys.add(key);
+      }
+    }
+  } else {
+    // Teachers: automatically include question papers for courses taught or assigned to them
+    const [coursePapers] = await pool.query(
+      `SELECT CONCAT('course-teacher-', qp.id, '-', c.id) AS id,
+              qp.id AS question_paper_id,
+              'MARKS_ENTRY' AS responsibility,
+              qp.created_at AS assigned_at, NULL AS class_id,
+              qp.status AS paper_status, qp.exam_type, qp.paper_set, qp.course_id,
+              c.subject_name, c.course_code, c.semester, c.academic_year,
+              NULL AS section, NULL AS class_label,
+              e.id AS examination_id, e.name AS examination_name,
+              ms.status AS marks_status
+       FROM question_papers qp
+       JOIN courses c ON c.id = qp.course_id
+       LEFT JOIN examinations e ON e.id = qp.examination_id
+       LEFT JOIN marks_submissions ms ON ms.question_paper_id = qp.id AND ms.class_id IS NULL
+       WHERE qp.superseded_by_id IS NULL
+         AND (c.teacher_id = ? OR c.id IN (SELECT course_id FROM user_course_assignments WHERE user_id = ?))
+       ORDER BY qp.created_at DESC`,
+      [userId, userId],
+    );
+
+    for (const paper of coursePapers) {
+      const key = `${paper.question_paper_id}_null`;
+      if (!seenPaperKeys.has(key)) {
+        explicitRows.push(paper);
+        seenPaperKeys.add(key);
+      }
+    }
+  }
+
+  return explicitRows;
 };
 
 module.exports = {

@@ -11,9 +11,12 @@ const { buildCourseAttainmentSheet, buildCoPoAttainmentSheet } = require('../uti
 const { buildAttainmentChartBuffers } = require('../utils/chartGenerator');
 const pool = require('../config/db');
 
-// GET /api/courses/:id/export-excel — all course members (Teacher/Viewer/Admin/Exam Team) can export
+// GET /api/courses/:id/export-excel — export Excel report
 router.get('/courses/:id/export-excel', protect, checkCoursePermission(['Teacher', 'Viewer']), async (req, res, next) => {
   try {
+    if (req.user.role === 'Teacher') {
+      return res.status(403).json({ success: false, message: 'Teachers are not permitted to download course reports.' });
+    }
     const course = await getCourseById(req.params.id, req.user.id, req.user.role);
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found' });

@@ -352,7 +352,7 @@ router.post('/examinations/papers/:id/confirm', protect, authorizeExamWrite('pap
 // ── My Assigned Examinations ─────────────────────────────────────────────────
 router.get('/examinations/my-assignments', protect, async (req, res, next) => {
   try {
-    const rows = await getAssignmentsForUser(req.user.id);
+    const rows = await getAssignmentsForUser(req.user.id, req.user.role);
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
 });

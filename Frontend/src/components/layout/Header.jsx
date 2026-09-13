@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Menu, Bell, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePageHeaderContext } from '../../context/PageHeaderContext';
 import { useAcademicFilter } from '../../context/AcademicFilterContext';
+import { fetchNotifications } from '../../Api/examinationApi';
 import ThemeToggle from '../ui/ThemeToggle';
 
 // Compact styled select control with a floating label above it
@@ -32,6 +34,30 @@ export default function Header({ onMenuClick }) {
   const navigate = useNavigate();
   const { header } = usePageHeaderContext();
   const { semester, setSemester, session, setSession, availableSemesters, availableSessions } = useAcademicFilter();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+    let isMounted = true;
+    const loadUnread = () => {
+      fetchNotifications(true)
+        .then((res) => {
+          if (isMounted) {
+            const list = res.data?.data || [];
+            const count = list.filter((n) => !n.is_read).length;
+            setUnreadCount(count);
+          }
+        })
+        .catch(() => { /* non-critical fallback */ });
+    };
+
+    loadUnread();
+    const interval = setInterval(loadUnread, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [user]);
 
   return (
     <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur-md sm:gap-3 sm:px-6">
@@ -96,10 +122,23 @@ export default function Header({ onMenuClick }) {
       <button
         type="button"
         onClick={() => navigate('/notifications')}
-        className="rounded-lg p-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
-        aria-label="Notifications"
+        className="relative rounded-lg p-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground group"
+        aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
       >
-        <Bell className="h-5 w-5" />
+        <Bell className={`h-5 w-5 transition-transform duration-200 ${unreadCount > 0 ? 'text-rose-500 group-hover:rotate-12' : ''}`} />
+        {unreadCount > 0 && (
+          <>
+            <span
+              className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-background z-10"
+            >
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+            <span
+              aria-hidden
+              className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-rose-500 opacity-75 animate-ping pointer-events-none"
+            />
+          </>
+        )}
       </button>
 
       {/* Theme toggle */}
