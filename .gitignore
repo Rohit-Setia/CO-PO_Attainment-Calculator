@@ -70,3 +70,4 @@ pids
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 Logics
+.kilo

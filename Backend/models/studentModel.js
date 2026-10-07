@@ -50,26 +50,23 @@ const createStudentTables = async () => {
 
 // Phase 3: Data Migration for Students
 const migrateLegacyStudentData = async () => {
-  // We need to carefully migrate students from student_marks so we don't duplicate them.
-  // We use reg_no as the stable identifier for registration_number.
-  
-  const [marks] = await pool.query("SELECT DISTINCT name, reg_no FROM student_marks WHERE reg_no IS NOT NULL AND reg_no != ''");
-  
-  for (const mark of marks) {
-    const [existingStudent] = await pool.query('SELECT id FROM students WHERE registration_number = ?', [mark.reg_no]);
-    if (existingStudent.length === 0) {
-      await pool.query('INSERT IGNORE INTO students (registration_number, name) VALUES (?, ?)', [mark.reg_no, mark.name || 'Unknown']);
-    }
-  }
+  // Use set-based batch operations to avoid thousands of individual roundtrips
+  // that cause socket resets (ECONNRESET) over cloud database connections.
+  await pool.query(`
+    INSERT IGNORE INTO students (registration_number, name)
+    SELECT DISTINCT reg_no, COALESCE(NULLIF(name, ''), 'Unknown')
+    FROM student_marks
+    WHERE reg_no IS NOT NULL AND reg_no != ''
+  `);
 
-  // Next, we can try to build course enrollments based on student_marks presence
-  const [allMarks] = await pool.query("SELECT DISTINCT course_id, reg_no FROM student_marks WHERE reg_no IS NOT NULL AND reg_no != ''");
-  for (const mark of allMarks) {
-    const [student] = await pool.query('SELECT id FROM students WHERE registration_number = ?', [mark.reg_no]);
-    if (student.length > 0) {
-       await pool.query('INSERT IGNORE INTO course_enrollments (course_id, student_id) VALUES (?, ?)', [mark.course_id, student[0].id]);
-    }
-  }
+  await pool.query(`
+    INSERT IGNORE INTO course_enrollments (course_id, student_id)
+    SELECT DISTINCT sm.course_id, s.id
+    FROM student_marks sm
+    JOIN students s ON s.registration_number = sm.reg_no
+    JOIN courses c ON c.id = sm.course_id
+    WHERE sm.reg_no IS NOT NULL AND sm.reg_no != '' AND sm.course_id IS NOT NULL
+  `);
 };
 
 module.exports = {

@@ -13,27 +13,12 @@ const teacherRouter = require('./routes/teacherRoutes');
 const examinationRouter = require('./routes/examinationRoutes');
 const errorHandler = require('./middlewares/errorMiddleware');
 
-const { createUsersTable, addRoleScopingColumns } = require('./models/userModel');
 const pool = require('./config/db');
-const { createCoursesTable, createUserCourseAssignmentsTable, addCourseStatusColumn } = require('./models/courseModel');
-const { createMappingTables, createCoPoValueTable, migrateLegacyMappingToCoPoValues } = require('./models/mappingModel');
-const {
-  createMarksTable, createStudentCoMarksTable, createStudentQuestionMarksTable, migrateLegacyStudentMarks,
-  addStudentIdToMarks,
-} = require('./models/marksModel');
-const { createCourseOutcomeTables, migrateLegacyCoursesToOutcomes } = require('./models/courseOutcomeModel');
-const { createQuestionConfigTable, migrateLegacyQuestionConfigs } = require('./models/questionConfigModel');
-const {
-  createUniversityTables, migrateLegacyUniversityData, normalizeLegacyStudentsTable, normalizeProgramsTable,
-  normalizeLegacyStudentSchemaForMaster, addProgramDegreeColumn, addPhase7DuplicatePreventionConstraints,
-  addStudentContextUniqueness,
-} = require('./models/universityModel');
-const { createProgramOutcomesTable, seedDefaultProgramOutcomes } = require('./models/programOutcomeModel');
-const { ensureOBESchema } = require('./models/obeModel');
-const { createStudentTables, migrateLegacyStudentData } = require('./models/studentModel');
-const { createAdminAuditTable } = require('./models/adminAuditModel');
 const { runPendingMigrations } = require('./utils/migrationRunner');
-const { ensureIndex } = require('./models/platformMigrations');
+const { runDatabaseInit } = require('./scripts/initDb');
+
+// Ensure migration definitions are registered
+require('./models/platformMigrations');
 require('./models/examWorkflowMigrations');
 require('./models/examAllocationMigrations');
 
@@ -133,54 +118,38 @@ if (isProduction) {
 // dynamic-CO schema (course_outcomes, co_po_values, question_configs, student_co_marks,
 // student_question_marks). Every migration step is idempotent (skips courses/rows already
 // migrated) and never modifies or drops the legacy tables/columns it reads from.
-createUsersTable()
-  .then(() => createUniversityTables())
-  .then(() => addRoleScopingColumns())
-  .then(() => addPhase7DuplicatePreventionConstraints())
-  .then(() => createProgramOutcomesTable())
-  .then(() => seedDefaultProgramOutcomes())
-  .then(() => createCoursesTable())
-  .then(() => addCourseStatusColumn())
-  .then(() => createStudentTables())
-  .then(() => addStudentContextUniqueness())
-  .then(() => migrateLegacyUniversityData())
-  .then(() => normalizeLegacyStudentsTable())
-  .then(() => normalizeProgramsTable())
-  .then(() => addProgramDegreeColumn())
-  .then(() => normalizeLegacyStudentSchemaForMaster())
-  .then(() => createUserCourseAssignmentsTable())
-  .then(() => createMappingTables())
-  .then(() => createMarksTable())
-  .then(() => addStudentIdToMarks())
-  .then(() => migrateLegacyStudentData())
-  .then(() => createCourseOutcomeTables())
-  .then(() => migrateLegacyCoursesToOutcomes())
-  .then(() => createCoPoValueTable())
-  .then(() => migrateLegacyMappingToCoPoValues())
-  .then(() => createQuestionConfigTable())
-  .then(() => migrateLegacyQuestionConfigs())
-  .then(() => createStudentCoMarksTable())
-  .then(() => createStudentQuestionMarksTable())
-  .then(() => migrateLegacyStudentMarks())
-  .then(() => createAdminAuditTable())
-  .then(() => ensureOBESchema())
-  // Phase 0 — versioned migrations (only pending ones run, recorded in schema_migrations).
-  .then(() => runPendingMigrations())
-  .then(() => {
-    httpServer = app.listen(PORT, () => console.log('Server running on', PORT));
-  })
-  .catch((error) => {
-    // Log full error (stack and object) to help diagnose DB init failures
-    console.error('Failed to initialize database tables:');
-    console.error(error && error.stack ? error.stack : error);
-    // If this error was augmented with an original driver error, log it too
+const startServer = async () => {
+  try {
+    console.log('[server] Checking database connection...');
+    await pool.query('SELECT 1 AS ok');
+    console.log('[server] Database connected.');
+
+    // Check if primary tables exist (fallback auto-init for fresh databases)
+    const [tables] = await pool.query(
+      "SELECT COUNT(*) AS c FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'teachers'"
+    );
+
+    if (!tables[0]?.c) {
+      console.log('[server] Fresh database detected. Running full database initialization...');
+      await runDatabaseInit();
+    } else {
+      // Database exists: run any pending versioned migrations (fast single-query check)
+      await runPendingMigrations();
+    }
+
+    httpServer = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  } catch (error) {
+    console.error('Failed to start server:', error && error.stack ? error.stack : error);
     if (error && error.original) {
       console.error('Original error:');
       console.error(error.original && error.original.stack ? error.original.stack : error.original);
     }
     pool.end().catch((closeError) => console.error('[shutdown] failed to close database pool:', closeError.message));
     process.exit(1);
-  });
+  }
+};
+
+startServer();
 
 const shutdown = (signal) => {
   if (shutdownStarted) return;

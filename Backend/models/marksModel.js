@@ -255,13 +255,26 @@ const migrateLegacyStudentMarks = async () => {
     const qcByExamAndNumber = new Map(questionConfigs.map((q) => [`${q.exam_type}:${q.question_number}`, q.id]));
 
     const [marks] = await pool.query('SELECT * FROM student_marks WHERE course_id = ?', [course.id]);
+    if (marks.length === 0) continue;
+
+    const [existingCoRows] = await pool.query(
+      `SELECT DISTINCT student_mark_id FROM student_co_marks WHERE student_mark_id IN (
+         SELECT id FROM student_marks WHERE course_id = ?
+       )`,
+      [course.id],
+    );
+    const existingCoSet = new Set(existingCoRows.map((r) => r.student_mark_id));
+
+    const [existingQRows] = await pool.query(
+      `SELECT DISTINCT student_mark_id FROM student_question_marks WHERE student_mark_id IN (
+         SELECT id FROM student_marks WHERE course_id = ?
+       )`,
+      [course.id],
+    );
+    const existingQSet = new Set(existingQRows.map((r) => r.student_mark_id));
 
     for (const mark of marks) {
-      const [existingCo] = await pool.query(
-        'SELECT COUNT(*) as count FROM student_co_marks WHERE student_mark_id = ?',
-        [mark.id],
-      );
-      if (existingCo[0].count === 0) {
+      if (!existingCoSet.has(mark.id)) {
         for (const [coNumber, coId] of outcomeByNumber.entries()) {
           const value = mark[`co${coNumber}`];
           if (value === undefined || value === null) continue;
@@ -272,11 +285,7 @@ const migrateLegacyStudentMarks = async () => {
         }
       }
 
-      const [existingQ] = await pool.query(
-        'SELECT COUNT(*) as count FROM student_question_marks WHERE student_mark_id = ?',
-        [mark.id],
-      );
-      if (existingQ[0].count === 0 && mark.question_marks) {
+      if (!existingQSet.has(mark.id) && mark.question_marks) {
         let parsed;
         try {
           parsed = JSON.parse(mark.question_marks);
