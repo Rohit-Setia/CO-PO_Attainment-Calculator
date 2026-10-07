@@ -330,6 +330,10 @@ router.post('/examinations/papers/:id/confirm', protect, authorizeExamWrite('pap
       maxMarks: draft.meta.maxMarks, durationMinutes: draft.meta.durationMinutes,
     });
     if (confirmedNow) {
+      // Mapping confirmed & published: paper is APPROVED and marks entry is ready
+      const allocatedClasses = await getAllocatedClassesForPaper(paper.id);
+      await createForPaperClasses(paper.id, paper.course_id, allocatedClasses.map((c) => c.class_id));
+
       const active = draft.rows.filter((row) => !row.removed);
       await logAction({
         actorUserId: req.user.id, actorName: req.user.email, action: 'PAPER_MAPPING_CONFIRMED',
@@ -342,6 +346,11 @@ router.post('/examinations/papers/:id/confirm', protect, authorizeExamWrite('pap
           editedText: active.filter((row) => row.extracted && row.questionText !== row.extracted.questionText).length,
           warnings: review.paper.filter((issue) => issue.severity === 'warning').map((issue) => issue.code),
         },
+      });
+      await logAction({
+        actorUserId: req.user.id, actorName: req.user.email, action: 'PAPER_APPROVED',
+        entityType: 'question_paper', entityId: paper.id,
+        details: { autoApprovedOnPublish: true },
       });
     }
     const [finalPaper, published] = await Promise.all([getQuestionPaperById(paper.id), getQuestionsForPaper(paper.id)]);
@@ -388,10 +397,17 @@ router.post('/examinations/papers/:id/assignments', protect, authorizeExamWrite(
     // examination endpoints, which check paper_assignments directly.
     if (responsibility === 'MARKS_ENTRY') {
       await assignUserToCourse(paper.course_id, user.id, 'Teacher');
+      if (paper.status === 'APPROVED') {
+        const allocatedClasses = await getAllocatedClassesForPaper(paper.id);
+        await createForPaperClasses(paper.id, paper.course_id, allocatedClasses.map((c) => c.class_id));
+      }
     }
 
-    if (paper.status === 'UPLOADED' || paper.status === 'EXTRACTED') {
-      await updatePaperStatus(paper.id, 'ASSIGNED_FOR_REVIEW');
+    // Only set ASSIGNED_FOR_REVIEW if explicitly assigning a reviewer/verifier on an unapproved paper
+    if (['PAPER_REVIEWER', 'PAPER_VERIFIER'].includes(responsibility)) {
+      if (paper.status === 'UPLOADED' || paper.status === 'EXTRACTED') {
+        await updatePaperStatus(paper.id, 'ASSIGNED_FOR_REVIEW');
+      }
     }
 
     await logAction({
@@ -429,6 +445,10 @@ router.post('/examinations/papers/:id/assign-class', protect, authorizeExamWrite
     const { classId } = req.body;
     if (!classId) return res.status(400).json({ success: false, message: 'classId is required.' });
     const enrolledCount = await enrollEntireClassInCourse(classId, paper.course_id);
+    if (paper.status === 'APPROVED') {
+      const { createForPaper } = require('../models/marksSubmissionModel');
+      await createForPaper(paper.id, paper.course_id, classId);
+    }
     await logAction({
       actorUserId: req.user.id, actorName: req.user.email, action: 'CLASS_ASSIGNED',
       entityType: 'question_paper', entityId: paper.id, details: { classId, enrolledCount },
@@ -486,12 +506,16 @@ router.post('/examinations/papers/:id/approve', protect, async (req, res, next) 
   try {
     const paper = await loadPaperOr404(req, res);
     if (!paper) return;
-    if (paper.status !== 'VERIFIED') {
-      return res.status(400).json({ success: false, message: 'Only a VERIFIED paper can be approved.' });
+    if (paper.status === 'APPROVED') {
+      return res.json({ success: true, data: paper, message: 'Paper is already approved.' });
+    }
+    const isOverseer = OVERSEER_ROLES.includes(req.user.role);
+    if (!isOverseer && paper.status !== 'VERIFIED') {
+      return res.status(400).json({ success: false, message: 'Only a VERIFIED paper can be approved by a reviewer.' });
     }
     const hasSeparateApprover = await isAssignedAnyOf(paper.id, req.user.id, ['PAPER_APPROVER']);
     const soleReviewer = (await countDistinctReviewers(paper.id)) <= 1;
-    if (!OVERSEER_ROLES.includes(req.user.role) && !hasSeparateApprover && !(soleReviewer && await canActAs(req, paper.id, ['PAPER_REVIEWER']))) {
+    if (!isOverseer && !hasSeparateApprover && !(soleReviewer && await canActAs(req, paper.id, ['PAPER_REVIEWER']))) {
       return res.status(403).json({ success: false, message: 'Forbidden: you are not authorized to approve this paper.' });
     }
 

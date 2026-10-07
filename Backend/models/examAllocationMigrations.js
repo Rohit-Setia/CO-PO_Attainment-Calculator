@@ -155,4 +155,23 @@ registerMigration('exam_allocation_imports_table', async () => {
   `);
 });
 
+// Ensures any historical question papers that were superseded do not leave duplicate
+// active question configs in question_configs table.
+registerMigration('exam_deactivate_superseded_question_configs', async () => {
+  await pool.query(`
+    UPDATE question_configs qc
+    JOIN question_papers qp_old ON qp_old.id = qc.question_paper_id
+    JOIN question_papers qp_new ON qp_new.course_id = qp_old.course_id
+      AND qp_new.exam_type = qp_old.exam_type
+      AND qp_new.id > qp_old.id
+      AND qp_new.status = 'APPROVED'
+      AND (
+        (qp_old.paper_set IS NULL AND qp_new.paper_set IS NULL)
+        OR LOWER(TRIM(COALESCE(qp_old.paper_set, ''))) = LOWER(TRIM(COALESCE(qp_new.paper_set, '')))
+      )
+    SET qc.is_active = 0
+    WHERE qc.is_active = 1
+  `);
+});
+
 module.exports = { dropIndexIfExists, ensureForeignKey };

@@ -70,7 +70,7 @@ const confirmMapping = async (id, userId, { maxMarks, durationMinutes }) => {
     `UPDATE question_papers
      SET mapping_confirmed_at = CURRENT_TIMESTAMP, mapping_confirmed_by = ?,
          max_marks = COALESCE(?, max_marks), duration_minutes = COALESCE(?, duration_minutes),
-         status = CASE WHEN status = 'UPLOADED' THEN 'EXTRACTED' ELSE status END
+         status = 'APPROVED'
      WHERE id = ? AND mapping_confirmed_at IS NULL`,
     [userId, maxMarks ?? null, durationMinutes ?? null, id],
   );

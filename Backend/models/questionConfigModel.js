@@ -84,18 +84,33 @@ const migrateLegacyQuestionConfigs = async () => {
   }
 };
 
-// questionPaperId narrows the result to ONE paper set. A course+examType may now carry
-// more than one active set (Set 1 for CSE-A, Set 2 for CSE-B), in which case question
-// numbers repeat across sets and the caller MUST name the paper. Omitting it returns
-// every active row for the course+examType — identical to the previous behaviour, and
-// still correct for the single-paper courses that make up everything existing.
+// Narrow to ONE paper if specified, or auto-resolve to the latest active/approved paper for
+// this course+examType if questions originate from papers. This prevents multiple uploads
+// or historical duplicates from returning repeated questions (e.g. Q1 appearing 4 times).
+// If no papers exist (pure manual configuration), returns the course's active manual rows.
 const getQuestionConfigs = async (courseId, examType, questionPaperId = undefined) => {
+  let targetPaperId = questionPaperId;
+
+  if (targetPaperId === undefined || targetPaperId === null || targetPaperId === '') {
+    const [[latestPaper]] = await pool.query(
+      `SELECT qp.id FROM question_papers qp
+       JOIN question_configs qc ON qc.question_paper_id = qp.id
+       WHERE qc.course_id = ? AND qc.exam_type = ? AND qc.is_active = 1
+       ORDER BY (qp.status = 'APPROVED') DESC, qp.id DESC LIMIT 1`,
+      [courseId, examType],
+    );
+    if (latestPaper) {
+      targetPaperId = latestPaper.id;
+    }
+  }
+
   const params = [courseId, examType];
   let paperClause = '';
-  if (questionPaperId !== undefined && questionPaperId !== null && questionPaperId !== '') {
+  if (targetPaperId !== undefined && targetPaperId !== null && targetPaperId !== '') {
     paperClause = ' AND qc.question_paper_id = ?';
-    params.push(questionPaperId);
+    params.push(targetPaperId);
   }
+
   const [rows] = await pool.query(
     `SELECT qc.*, co.co_number FROM question_configs qc
      JOIN course_outcomes co ON co.id = qc.co_id
@@ -133,7 +148,8 @@ const replaceQuestionConfigs = async (courseId, examType, questions) => {
     const placeholders = submittedNumbers.map(() => '?').join(', ');
     await pool.query(
       `UPDATE question_configs SET is_active = 0
-       WHERE course_id = ? AND exam_type = ? AND question_number NOT IN (${placeholders})`,
+       WHERE course_id = ? AND exam_type = ?
+         AND (question_paper_id IS NOT NULL OR question_number NOT IN (${placeholders}))`,
       [courseId, examType, ...submittedNumbers],
     );
   } else {
@@ -150,9 +166,15 @@ const replaceQuestionConfigs = async (courseId, examType, questions) => {
 // responsible for reconciling course_outcomes.max_internal/external from these same rows
 // beforehand. CO numbers are resolved/created via findOrCreateOutcomeByNumber so a paper can
 // reference a CO the course has never configured before. Archives (never deletes) any
-// previously-active row not in the new set, same as replaceQuestionConfigs, so historical
-// student_question_marks links are preserved when a paper is revised.
+// previously-active row not in the new set, so historical student_question_marks links are preserved.
 const applyPaperQuestions = async (courseId, examType, questionPaperId, questions) => {
+  // Read this paper's details to identify its paper_set (e.g. null, 'Set A', etc.)
+  const [[currentPaper]] = await pool.query(
+    'SELECT id, paper_set FROM question_papers WHERE id = ?',
+    [questionPaperId],
+  );
+  const currentPaperSet = currentPaper?.paper_set ? currentPaper.paper_set.trim() : null;
+
   const submittedNumbers = [];
   for (const q of questions) {
     const outcome = await findOrCreateOutcomeByNumber(courseId, q.coNumber);
@@ -175,18 +197,48 @@ const applyPaperQuestions = async (courseId, examType, questionPaperId, question
     );
   }
 
-  // Archive only what this paper supersedes: its OWN rows that dropped out of the new
-  // set, plus any manually-entered rows for the course+examType (the approved paper
-  // replaces hand-typed config, which is the pre-existing behaviour). Rows belonging to
-  // a DIFFERENT paper are left alone — without this clause, uploading Set 2 for the same
-  // course archived the whole of Set 1 and took CSE-A's CO mapping with it.
+  // Deactivate older superseded papers for this course+examType matching this set
+  // (or without a set if none is specified), plus any manual configurations.
+  // This ensures re-uploading / confirming a paper overwrites previous question sets
+  // rather than accumulating duplicates.
+  let olderSetClause = '';
+  const olderParams = [courseId, examType, questionPaperId];
+  if (currentPaperSet) {
+    olderSetClause = ' AND LOWER(TRIM(COALESCE(qp.paper_set, ""))) = LOWER(TRIM(?))';
+    olderParams.push(currentPaperSet);
+  } else {
+    olderSetClause = ' AND (qp.paper_set IS NULL OR TRIM(qp.paper_set) = "")';
+  }
+
+  await pool.query(
+    `UPDATE question_configs qc
+     JOIN question_papers qp ON qp.id = qc.question_paper_id
+     SET qc.is_active = 0
+     WHERE qc.course_id = ? AND qc.exam_type = ? AND qc.question_paper_id != ?${olderSetClause}`,
+    olderParams,
+  );
+
+  // Link superseded older papers to this new paper if not already linked
+  await pool.query(
+    `UPDATE question_papers qp
+     SET qp.superseded_by_id = ?
+     WHERE qp.course_id = ? AND qp.exam_type = ? AND qp.id != ?
+       AND qp.superseded_by_id IS NULL${olderSetClause}`,
+    [questionPaperId, ...olderParams],
+  );
+
+  // Deactivate any manually-entered questions (the approved paper replaces manual config)
+  await pool.query(
+    'UPDATE question_configs SET is_active = 0 WHERE course_id = ? AND exam_type = ? AND question_paper_id IS NULL',
+    [courseId, examType],
+  );
+
+  // Archive any questions from THIS paper that dropped out of the newly submitted list
   if (submittedNumbers.length > 0) {
     const placeholders = submittedNumbers.map(() => '?').join(', ');
     await pool.query(
       `UPDATE question_configs SET is_active = 0
-       WHERE course_id = ? AND exam_type = ?
-         AND (question_paper_id IS NULL
-              OR (question_paper_id = ? AND question_number NOT IN (${placeholders})))`,
+       WHERE course_id = ? AND exam_type = ? AND question_paper_id = ? AND question_number NOT IN (${placeholders})`,
       [courseId, examType, questionPaperId, ...submittedNumbers],
     );
   }
