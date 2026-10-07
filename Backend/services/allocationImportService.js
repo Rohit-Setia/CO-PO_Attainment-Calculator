@@ -481,8 +481,7 @@ const importAllocations = async ({ buffer, filename, examinationId, importedBy }
     // touched by this sheet is attached to the examination it was allocated under.
     for (const paperId of touchedPapers) {
       await conn.query(
-        `UPDATE question_papers SET examination_id = COALESCE(examination_id, ?),
-           status = CASE WHEN status IN ('UPLOADED', 'EXTRACTED') THEN 'ASSIGNED_FOR_REVIEW' ELSE status END
+        `UPDATE question_papers SET examination_id = COALESCE(examination_id, ?)
          WHERE id = ?`,
         [examinationId, paperId],
       );

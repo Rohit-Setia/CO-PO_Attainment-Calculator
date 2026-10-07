@@ -239,7 +239,7 @@ export default function PaperReviewPage() {
             <CheckCircle2 className="h-4 w-4" /> Mark as Verified
           </button>
         )}
-        {canApprove && paper.status === 'VERIFIED' && (
+        {canApprove && (paper.status === 'VERIFIED' || (canOversee && ['ASSIGNED_FOR_REVIEW', 'UNDER_REVIEW', 'EXTRACTED'].includes(paper.status))) && (
           <div className="mt-4 flex gap-2">
             <button type="button" disabled={busy} onClick={handleApprove} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
               <ShieldCheck className="h-4 w-4" /> Approve Paper
@@ -299,7 +299,7 @@ export default function PaperReviewPage() {
             <Badge variant="secondary">{marksSubmission?.status?.replace(/_/g, ' ') || 'NOT STARTED'}</Badge>
           </p>
           <div className="flex flex-wrap gap-2">
-            {myResponsibilities.includes('MARKS_ENTRY') && marksSubmission?.status !== 'LOCKED' && (
+            {(myResponsibilities.includes('MARKS_ENTRY') || canOversee) && marksSubmission?.status !== 'LOCKED' && (
               <>
                 <button type="button" onClick={() => navigate(`/courses/${paper.course_id}?tab=marks`)} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">Enter Marks</button>
                 {['NOT_STARTED', 'IN_PROGRESS', 'CORRECTION_REQUIRED'].includes(marksSubmission?.status) && (
