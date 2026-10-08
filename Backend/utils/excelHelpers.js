@@ -341,8 +341,8 @@ const buildCoPoAttainmentSheet = (ws2, course, config, courseOutcomes, coPoValue
     const colLetterStr = colLetter(col);
     const avgResult = ws2.getCell(mappingAvgRow, col).value.result || 0;
     ws2.getCell(mappingAttainmentRow, col).value = {
-      formula: `ROUND(${colLetterStr}${mappingAvgRow} * 'Course Attainment'!${overallDirectCellIdx}, 2)`,
-      result: parseFloat((avgResult * overallAvg).toFixed(2)),
+      formula: `ROUND((${colLetterStr}${mappingAvgRow} / 3) * 'Course Attainment'!${overallDirectCellIdx}, 2)`,
+      result: parseFloat(((avgResult / 3.0) * overallAvg).toFixed(2)),
     };
   }
   styleRange(ws2, mappingAttainmentRow, 1, mappingAttainmentRow, 16, { bold: true, bgColor: 'C6E0B4' });

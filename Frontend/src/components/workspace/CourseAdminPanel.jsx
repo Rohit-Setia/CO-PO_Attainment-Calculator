@@ -6,8 +6,8 @@ import {
   assignFacultyToCourse,
   removeFacultyFromCourse,
   fetchCourseAssignments,
-  searchFacultyUsers,
 } from '../../Api/AttainmentApi';
+import FacultyAutocompleteInput from '../common/FacultyAutocompleteInput';
 
 const STATUS_OPTIONS = ['Active', 'Inactive', 'Archived'];
 
@@ -23,52 +23,7 @@ export default function CourseAdminPanel({ courseId, status, onStatusChanged, re
   const [assignedRole, setAssignedRole] = useState('Teacher');
   const [assigning, setAssigning] = useState(false);
 
-  // Gmail-style autocomplete dropdown state
-  const [suggestions, setSuggestions] = useState([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const dropdownRef = useRef(null);
-  const searchTimerRef = useRef(null);
 
-  // Click outside to close autocomplete
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleInputChange = (val) => {
-    setEmail(val);
-    if (!val.trim() || val.trim().length < 1) {
-      setSuggestions([]);
-      setShowDropdown(false);
-      return;
-    }
-
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    setLoadingSuggestions(true);
-    setShowDropdown(true);
-
-    searchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await searchFacultyUsers(val.trim());
-        setSuggestions(res.data?.data || []);
-      } catch {
-        setSuggestions([]);
-      } finally {
-        setLoadingSuggestions(false);
-      }
-    }, 250);
-  };
-
-  const handleSelectFaculty = (faculty) => {
-    setEmail(faculty.email);
-    setShowDropdown(false);
-  };
 
   const loadAssignments = () => {
     setLoadingAssignments(true);
@@ -169,61 +124,13 @@ export default function CourseAdminPanel({ courseId, status, onStatusChanged, re
 
         {!readOnly && (
           <form onSubmit={handleAssign} className="mt-3 flex flex-col gap-2">
-            <div className="relative" ref={dropdownRef}>
-              <input
-                type="text"
-                value={email}
-                onChange={(e) => handleInputChange(e.target.value)}
-                onFocus={() => { if (suggestions.length > 0) setShowDropdown(true); }}
-                placeholder="Search faculty by name or email..."
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                autoComplete="off"
-              />
-
-              {/* Gmail-style dropdown */}
-              {showDropdown && (
-                <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-border bg-popover p-1 shadow-lg backdrop-blur-md">
-                  {loadingSuggestions ? (
-                    <div className="flex items-center justify-center gap-2 p-3 text-xs text-muted-foreground">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                      Searching faculty...
-                    </div>
-                  ) : suggestions.length === 0 ? (
-                    <div className="p-3 text-center text-xs text-muted-foreground">
-                      No faculty found matching "{email}"
-                    </div>
-                  ) : (
-                    suggestions.map((user) => (
-                      <button
-                        key={user.id}
-                        type="button"
-                        onClick={() => handleSelectFaculty(user)}
-                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition hover:bg-accent"
-                      >
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
-                          {(user.name || user.email).charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="font-semibold text-foreground truncate">{user.name}</span>
-                            <span className="shrink-0 text-[10px] text-muted-foreground rounded bg-secondary px-1.5 py-0.5">
-                              {user.role}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-muted-foreground truncate">{user.email}</div>
-                          {user.department_name && (
-                            <div className="text-[10px] text-muted-foreground/80 truncate">{user.department_name}</div>
-                          )}
-                        </div>
-                        {email === user.email && (
-                          <Check className="h-3.5 w-3.5 text-primary shrink-0" />
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
+            <FacultyAutocompleteInput
+              value={email}
+              onChange={setEmail}
+              onSelect={(user) => setEmail(user.email)}
+              placeholder="Search faculty by name, email, or ID…"
+              required
+            />
 
             <div className="flex gap-2">
               <select

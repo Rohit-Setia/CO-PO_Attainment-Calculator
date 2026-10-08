@@ -532,7 +532,7 @@ export default function CourseWorkspace() {
         ? `${hierarchy.schoolName} • ${hierarchy.departmentName} • ${hierarchy.programName} • Sem ${course.semester} (${hierarchy.sessionName || course.academic_year})`
         : `${course.school} • ${course.department} • Sem ${course.semester} (${course.academic_year})`
       : '',
-    actions: course && canManageCourseStructure ? (
+    actions: course && canManageCourseStructure && !hasRole('Teacher') ? (
       <>
         <button
           onClick={handleExportJson}

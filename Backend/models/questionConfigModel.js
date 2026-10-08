@@ -243,18 +243,70 @@ const applyPaperQuestions = async (courseId, examType, questionPaperId, question
     );
   }
 
-  // Reconcile each referenced CO's max for this exam component to the sum of its question
-  // marks in THIS paper — the approved paper is authoritative, so the CO's configured max
-  // must match what the paper actually offers, not a stale/manual prior value.
+  // Reconcile each CO's max for this exam component to the sum of its question marks in THIS paper.
+  // Any CO of the course not assessed on this paper is set to 0 (overwriting default values).
+  await reconcileCourseOutcomeMaxMarks(courseId, examType);
+};
+
+/**
+ * Authoritatively calculates and sets each Course Outcome's max marks (max_internal for MTT,
+ * max_external for ETT) based on active questions for this course + exam component.
+ *
+ * Any active CO for the course that is NOT assessed on this question paper has its max set to 0,
+ * ensuring default values (e.g. 10 or 20) are never retained for unassessed outcomes.
+ * Also synchronizes course_configs (total_max_internal/external and co1..6_max columns).
+ */
+const reconcileCourseOutcomeMaxMarks = async (courseId, examType) => {
+  const [activeQuestions] = await pool.query(
+    `SELECT qc.max_marks, co.co_number, qc.co_id
+     FROM question_configs qc
+     JOIN course_outcomes co ON co.id = qc.co_id
+     WHERE qc.course_id = ? AND qc.exam_type = ? AND qc.is_active = 1`,
+    [courseId, examType],
+  );
+
   const totalsByCoNumber = new Map();
-  for (const q of questions) {
-    totalsByCoNumber.set(q.coNumber, (totalsByCoNumber.get(q.coNumber) || 0) + Number(q.maxMarks));
+  let paperTotalMarks = 0;
+  for (const q of activeQuestions) {
+    const marks = Number(q.max_marks) || 0;
+    totalsByCoNumber.set(q.co_number, (totalsByCoNumber.get(q.co_number) || 0) + marks);
+    paperTotalMarks += marks;
   }
+
+  const activeOutcomes = await getActiveOutcomes(courseId);
+  const processedCoNumbers = new Set();
+
   for (const [coNumber, total] of totalsByCoNumber.entries()) {
     const outcome = await findOrCreateOutcomeByNumber(courseId, coNumber);
     // eslint-disable-next-line no-await-in-loop
     await setOutcomeMaxForExamType(outcome.id, examType, total);
+    processedCoNumbers.add(coNumber);
   }
+
+  // Any active CO of the course NOT assessed on this exam paper is set to 0 max marks
+  for (const outcome of activeOutcomes) {
+    if (!processedCoNumbers.has(outcome.co_number)) {
+      // eslint-disable-next-line no-await-in-loop
+      await setOutcomeMaxForExamType(outcome.id, examType, 0);
+    }
+  }
+
+  // Synchronize legacy course_configs table (total_max_internal / total_max_external and co1..6)
+  const isInternal = examType === 'MTT';
+  const totalCol = isInternal ? 'total_max_internal' : 'total_max_external';
+  const coUpdates = [];
+  const coParams = [];
+
+  for (let c = 1; c <= 6; c++) {
+    const col = isInternal ? `co${c}_max_internal` : `co${c}_max_external`;
+    coUpdates.push(`${col} = ?`);
+    coParams.push(totalsByCoNumber.get(c) || 0);
+  }
+
+  await pool.query(
+    `UPDATE course_configs SET ${totalCol} = ?, ${coUpdates.join(', ')} WHERE course_id = ?`,
+    [paperTotalMarks, ...coParams, courseId],
+  );
 };
 
 // True once this course+examType's active questions are sourced from an APPROVED question
@@ -303,6 +355,7 @@ const updateQuestionConfigFields = async (id, { coNumber, maxMarks, questionText
 
   values.push(id);
   await pool.query(`UPDATE question_configs SET ${fields.join(', ')} WHERE id = ?`, values);
+  await reconcileCourseOutcomeMaxMarks(existing.course_id, existing.exam_type);
   const [[updated]] = await pool.query('SELECT * FROM question_configs WHERE id = ?', [id]);
   return updated;
 };
@@ -314,6 +367,7 @@ module.exports = {
   getQuestionConfigs,
   replaceQuestionConfigs,
   applyPaperQuestions,
+  reconcileCourseOutcomeMaxMarks,
   updateQuestionConfigFields,
   isLockedByApprovedPaper,
 };

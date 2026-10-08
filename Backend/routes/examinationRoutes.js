@@ -20,6 +20,7 @@ const { logAction } = require('../models/adminAuditModel');
 const { notify, getForUser, markRead } = require('../models/notificationModel');
 const { sendMail } = require('../services/emailService');
 const { extractQuestionPaper } = require('../services/paperExtractionService');
+const { previewBulkPapers, executeBulkImport } = require('../services/bulkPaperUploadService');
 const { suggestCoRbt, isAiConfigured } = require('../services/coRbtSuggestionService');
 const {
   buildDraft, suggestionItems, attachSuggestions, applyDraftEdits, evaluateDraft, toPublishQuestions,
@@ -28,7 +29,7 @@ const { getActiveOutcomes } = require('../models/courseOutcomeModel');
 const pool = require('../config/db');
 
 const {
-  createQuestionPaper, getQuestionPaperById, setExtractionResult, updatePaperStatus,
+  createQuestionPaper, getQuestionPaperById, deleteQuestionPaper, setExtractionResult, updatePaperStatus,
   listQuestionPapers, getQuestionsForPaper, getStats,
   isAwaitingConfirmation, saveExtractionDraft, getExtractionDraft, updateExtractionDraft, confirmMapping,
 } = require('../models/questionPaperModel');
@@ -46,7 +47,7 @@ const {
 } = require('../models/examinationModel');
 const { validateAllocationWorkbook, importAllocations } = require('../services/allocationImportService');
 const { buildAllocationTemplateWorkbook, buildAllocationErrorWorkbook } = require('../utils/allocationTemplate');
-const { applyPaperQuestions, updateQuestionConfigFields, MAX_QUESTIONS_PER_EXAM } = require('../models/questionConfigModel');
+const { applyPaperQuestions, updateQuestionConfigFields, reconcileCourseOutcomeMaxMarks, MAX_QUESTIONS_PER_EXAM } = require('../models/questionConfigModel');
 const { enrollEntireClassInCourse } = require('../models/academicModel');
 
 const UPLOAD_DIR = path.resolve(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', 'question-papers');
@@ -66,12 +67,30 @@ const loadPaperOr404 = async (req, res) => {
   return paper;
 };
 
+const isCourseTeacherForPaper = async (paperId, userId) => {
+  const [rows] = await pool.query(
+    `SELECT c.id FROM courses c
+     JOIN question_papers qp ON qp.course_id = c.id
+     LEFT JOIN user_course_assignments uca ON uca.course_id = c.id AND uca.user_id = ?
+     WHERE qp.id = ? AND (c.teacher_id = ? OR uca.user_id = ?)`,
+    [userId, paperId, userId, userId],
+  );
+  return rows.length > 0;
+};
+
 // An overseer (Admin/Moderator/Examination Team/School Admin/Department Admin) already
 // cleared authorizeExamWrite's scope check on this route — they may act regardless of
-// a specific paper_assignments row. Anyone else must hold the named responsibility.
+// a specific paper_assignments row. Anyone else must hold the named responsibility,
+// or be an assigned teacher on the course for marks entry/evaluator responsibilities.
 const canActAs = async (req, paperId, responsibilities) => {
   if (OVERSEER_ROLES.includes(req.user.role)) return true;
-  return isAssignedAnyOf(paperId, req.user.id, responsibilities);
+  const direct = await isAssignedAnyOf(paperId, req.user.id, responsibilities);
+  if (direct) return true;
+  if (responsibilities.some((r) => ['MARKS_ENTRY', 'EVALUATOR', 'MODERATOR'].includes(r))) {
+    const isTeacher = await isCourseTeacherForPaper(paperId, req.user.id);
+    if (isTeacher) return true;
+  }
+  return false;
 };
 
 const safeFileName = (name) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -184,6 +203,65 @@ router.post(
   },
 );
 
+// ── Bulk Upload & Department Auto-Match Preview ──────────────────────────────
+router.post(
+  '/examinations/papers/bulk-preview',
+  protect,
+  authorizeExamWrite('course'),
+  upload.array('files', 50),
+  async (req, res, next) => {
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ success: false, message: 'At least one question paper file is required.' });
+      }
+      const { departmentId, programId, examType, academicYear } = req.body;
+      const data = await previewBulkPapers(req.files, {
+        departmentId: departmentId ? Number(departmentId) : null,
+        programId: programId ? Number(programId) : null,
+        examType: examType || 'MTT',
+        academicYear: academicYear || null,
+      });
+      res.json({ success: true, data });
+    } catch (err) { next(err); }
+  },
+);
+
+// ── Bulk Import & Extraction Execution ──────────────────────────────────────
+router.post(
+  '/examinations/papers/bulk-import',
+  protect,
+  authorizeExamWrite('course'),
+  upload.array('files', 50),
+  async (req, res, next) => {
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ success: false, message: 'At least one file is required.' });
+      }
+      let mappings = [];
+      try {
+        mappings = typeof req.body.mappings === 'string' ? JSON.parse(req.body.mappings) : (req.body.mappings || []);
+      } catch {
+        return res.status(400).json({ success: false, message: 'Invalid mappings JSON format.' });
+      }
+
+      if (!mappings || mappings.length === 0) {
+        return res.status(400).json({ success: false, message: 'Mappings are required to import papers.' });
+      }
+
+      const summary = await executeBulkImport({
+        files: req.files,
+        mappings,
+        uploadDir: UPLOAD_DIR,
+        userId: req.user.id,
+        userEmail: req.user.email,
+        extractIntoDraft,
+      });
+
+      res.json({ success: true, data: summary });
+    } catch (err) { next(err); }
+  },
+);
+
 // ── List + detail ────────────────────────────────────────────────────────────
 router.get('/examinations/papers', protect, async (req, res, next) => {
   try {
@@ -207,7 +285,11 @@ router.get('/examinations/papers/:id', protect, async (req, res, next) => {
   try {
     const paper = await loadPaperOr404(req, res);
     if (!paper) return;
-    if (!OVERSEER_ROLES.includes(req.user.role) && !(await isAssignedAnyOf(paper.id, req.user.id, ['PAPER_REVIEWER', 'PAPER_VERIFIER', 'PAPER_APPROVER', 'MARKS_ENTRY', 'EVALUATOR', 'MODERATOR']))) {
+    const [hasDirectAssignment, isCourseTeacher] = await Promise.all([
+      isAssignedAnyOf(paper.id, req.user.id, ['PAPER_REVIEWER', 'PAPER_VERIFIER', 'PAPER_APPROVER', 'MARKS_ENTRY', 'EVALUATOR', 'MODERATOR']),
+      isCourseTeacherForPaper(paper.id, req.user.id),
+    ]);
+    if (!OVERSEER_ROLES.includes(req.user.role) && !hasDirectAssignment && !isCourseTeacher) {
       return res.status(403).json({ success: false, message: 'Forbidden: you have no assignment on this paper.' });
     }
     const [questions, assignments, marksSubmissions] = await Promise.all([
@@ -217,6 +299,9 @@ router.get('/examinations/papers/:id', protect, async (req, res, next) => {
     ]);
     const mine = assignments.filter((a) => a.user_id === req.user.id);
     const myResponsibilities = [...new Set(mine.map((a) => a.responsibility))];
+    if (isCourseTeacher && !myResponsibilities.includes('MARKS_ENTRY')) {
+      myResponsibilities.push('MARKS_ENTRY');
+    }
     res.json({
       success: true,
       data: {
@@ -230,6 +315,39 @@ router.get('/examinations/papers/:id', protect, async (req, res, next) => {
         awaitingConfirmation: isAwaitingConfirmation(paper),
       },
     });
+  } catch (err) { next(err); }
+});
+
+// ── Delete Question Paper (draft, unapproved, or no submitted marks) ────────
+router.delete('/examinations/papers/:id', protect, authorizeExamWrite('paper'), async (req, res, next) => {
+  try {
+    const paper = await loadPaperOr404(req, res);
+    if (!paper) return;
+
+    // Check if marks have been submitted or locked for this paper
+    const [submissions] = await pool.query(
+      "SELECT id, status FROM marks_submissions WHERE question_paper_id = ? AND status IN ('SUBMITTED', 'LOCKED')",
+      [paper.id],
+    );
+    if (submissions.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'Cannot delete this question paper because student marks have already been submitted or locked.',
+      });
+    }
+
+    await deleteQuestionPaper(paper.id);
+
+    await logAction({
+      actorUserId: req.user.id,
+      actorName: req.user.email,
+      action: 'PAPER_DELETED',
+      entityType: 'question_paper',
+      entityId: paper.id,
+      details: { fileName: paper.file_name, courseId: paper.course_id, status: paper.status },
+    });
+
+    res.json({ success: true, message: 'Question paper deleted successfully.' });
   } catch (err) { next(err); }
 });
 
@@ -520,6 +638,8 @@ router.post('/examinations/papers/:id/approve', protect, async (req, res, next) 
     }
 
     const updated = await updatePaperStatus(paper.id, 'APPROVED');
+    // Ensure all CO maximums are authoritatively reconciled and unassessed COs are zeroed out
+    await reconcileCourseOutcomeMaxMarks(paper.course_id, paper.exam_type);
     // One marks lifecycle per allocated class, so CSE-A and CSE-B sharing this paper
     // submit and lock independently. With no class-scoped evaluator this creates the
     // single paper-level row approval has always created.

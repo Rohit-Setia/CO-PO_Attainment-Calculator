@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Upload, Loader2, FileText, ClipboardList, CheckCircle2, XCircle, Users, Users2 } from 'lucide-react';
+import { Upload, Loader2, FileText, ClipboardList, CheckCircle2, XCircle, Users, Users2, Layers, Trash2 } from 'lucide-react';
 import PageTransition from '../components/ui/PageTransition';
 import { Badge } from '../components/ui/badge';
 import { usePageHeader } from '../context/PageHeaderContext';
 import { fetchCourses } from '../Api/AttainmentApi';
-import { uploadQuestionPaper, fetchQuestionPapers, fetchExaminationStats } from '../Api/examinationApi';
+import { uploadQuestionPaper, fetchQuestionPapers, fetchExaminationStats, deleteQuestionPaper } from '../Api/examinationApi';
 import AllocationPanel from '../components/examination/AllocationPanel';
+import BulkPaperUploadPanel from '../components/examination/BulkPaperUploadPanel';
 
 const STATUS_TONE = {
   UPLOADED: 'bg-slate-500/15 text-slate-600',
@@ -64,6 +65,18 @@ export default function ExaminationCellPage() {
   useEffect(() => { fetchExaminationStats().then((res) => setStats(res.data?.data)).catch(() => {}); }, []);
   useEffect(() => { loadPapers(); }, [loadPapers]);
 
+  const handleDeletePaper = async (paper) => {
+    if (!window.confirm(`Permanently delete question paper for "${paper.subject_name || paper.file_name}"?`)) return;
+    try {
+      await deleteQuestionPaper(paper.id);
+      toast.success('Question paper deleted.');
+      loadPapers();
+      fetchExaminationStats().then((r) => setStats(r.data?.data)).catch(() => {});
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete question paper.');
+    }
+  };
+
   const handleUpload = async (e) => {
     e.preventDefault();
     if (!courseId || !file) {
@@ -94,6 +107,7 @@ export default function ExaminationCellPage() {
 
   const TABS = [
     ['papers', 'Question Papers', FileText],
+    ['bulk-upload', 'Bulk Upload Papers', Layers],
     ['allocation', 'Teacher Allocation', Users2],
   ];
 
@@ -117,6 +131,7 @@ export default function ExaminationCellPage() {
       </div>
 
       {tab === 'allocation' && <AllocationPanel />}
+      {tab === 'bulk-upload' && <BulkPaperUploadPanel onImportFinished={loadPapers} />}
 
       {tab === 'papers' && stats && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -212,9 +227,21 @@ export default function ExaminationCellPage() {
                   <td className="px-3 py-2 text-muted-foreground">{p.marks_status ? p.marks_status.replace(/_/g, ' ') : '—'}</td>
                   <td className="px-3 py-2 text-muted-foreground">{new Date(p.uploaded_at).toLocaleDateString()}</td>
                   <td className="px-3 py-2">
-                    <button type="button" onClick={() => navigate(`/examinations/papers/${p.id}`)} className="rounded-lg border border-border px-2.5 py-1 text-xs font-semibold hover:bg-secondary">
-                      {p.awaiting_confirmation ? 'Review Mapping' : 'Manage'}
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button type="button" onClick={() => navigate(`/examinations/papers/${p.id}`)} className="rounded-lg border border-border px-2.5 py-1 text-xs font-semibold hover:bg-secondary">
+                        {p.awaiting_confirmation ? 'Review Mapping' : 'Manage'}
+                      </button>
+                      {p.marks_status !== 'LOCKED' && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePaper(p)}
+                          className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition"
+                          title="Delete this question paper"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

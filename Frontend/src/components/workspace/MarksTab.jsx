@@ -1,10 +1,13 @@
-import { Upload, Users, Loader2, Save, Plus, Info, Sparkles, Scale } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { Upload, Users, Loader2, Save, Plus, Info, Sparkles, Scale, Download } from "lucide-react";
 import StudentTable from "../StudentTable";
 import QuestionWiseTable from "../QuestionWiseTable";
 import QuestionConfigPanel from "./QuestionConfigPanel";
 import EmptyState from "../ui/EmptyState";
 import { getCoWeightageBreakdown, calculateExamTotalMax } from "../../utils/marksDistribution";
 import { useAuth } from "../../context/AuthContext";
+import { downloadMarksTemplate } from "../../Api/AttainmentApi";
 
 const segmentBtn = (active) =>
   `rounded-xl border px-3 py-2 text-xs font-semibold transition text-center ${
@@ -48,6 +51,29 @@ export default function MarksTab({
   const examTotalMax = calculateExamTotalMax(courseOutcomes, isInternal);
   const { hasRole } = useAuth();
   const canChooseEntryMode = hasRole('Admin', 'Moderator', 'School Admin', 'Department Admin', 'Examination Team');
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+
+  const handleDownloadTemplate = async () => {
+    if (!course?.id) return;
+    setDownloadingTemplate(true);
+    try {
+      const res = await downloadMarksTemplate(course.id, activeExamType, hierarchy?.classId || null);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const cleanSubject = (course.subject_name || 'Marks').replace(/\s+/g, '_');
+      link.setAttribute('download', `${cleanSubject}_${activeExamType}_Marks_Template.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success('Marks entry template downloaded successfully!');
+    } catch (err) {
+      console.error('Failed to download marks template:', err);
+      toast.error('Failed to download marks template.');
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -168,6 +194,16 @@ export default function MarksTab({
 
           {!readOnly && (
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                disabled={downloadingTemplate}
+                className="flex items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-secondary disabled:opacity-50"
+                title="Download pre-filled Excel template with enrolled students and CO columns"
+              >
+                {downloadingTemplate ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                Download Template
+              </button>
               <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-secondary" title="Optional: bulk import/update marks from an Excel file">
                 <Upload className="h-3.5 w-3.5" /> Import Excel
                 <input type="file" accept=".xlsx, .xls" onChange={handleExcelUpload} className="hidden" />

@@ -13,6 +13,23 @@ function computeAttainmentForComponent(students, courseOutcomes, config, isInter
 
   courseOutcomes.forEach((co) => {
     const maxMarks = parseFloat(isInternal ? co.max_internal : co.max_external) || 0;
+
+    if (maxMarks <= 0) {
+      perCo[co.id] = {
+        co_id: co.id,
+        co_number: co.co_number,
+        description: co.description,
+        totalStudents,
+        studentsAboveThreshold: 0,
+        percentAbove: null,
+        level: null,
+        thresholdMarks: 0,
+        maxMarks: 0,
+        assessed: false,
+      };
+      return;
+    }
+
     const thresholdMarks = (thresholdPercent / 100) * maxMarks;
 
     let aboveThreshold = 0;
@@ -37,12 +54,13 @@ function computeAttainmentForComponent(students, courseOutcomes, config, isInter
       level,
       thresholdMarks: parseFloat(thresholdMarks.toFixed(2)),
       maxMarks,
+      assessed: true,
     };
   });
 
-  const numCos = courseOutcomes.length;
-  const avgLevel = numCos
-    ? Object.values(perCo).reduce((sum, c) => sum + c.level, 0) / numCos
+  const assessedCos = Object.values(perCo).filter((c) => c.assessed && c.level !== null);
+  const avgLevel = assessedCos.length
+    ? assessedCos.reduce((sum, c) => sum + c.level, 0) / assessedCos.length
     : 0;
 
   return { perCo, CO: parseFloat(avgLevel.toFixed(2)) };
@@ -74,29 +92,50 @@ function calculateCourseAttainment({ courseOutcomes, config, coPoAverages, mttSt
 
   const combinedCO = {};
   let directAttainmentSum = 0;
+  let assessedCoCount = 0;
+
   courseOutcomes.forEach((co) => {
-    const rawInternal = mttAttainment ? mttAttainment.perCo[co.id].level : 0;
-    const rawExternal = ettAttainment ? ettAttainment.perCo[co.id].level : 0;
-    
-    // Formula per methodology:
-    // If both exist: internal * intWeight% + external * extWeight%
-    // If only one exists: compute component contribution accordingly
-    const combinedLevel = (rawInternal * (internalWeight / 100)) + (rawExternal * (externalWeight / 100));
+    const mttInfo = mttAttainment?.perCo[co.id];
+    const ettInfo = ettAttainment?.perCo[co.id];
+    const hasMtt = mttInfo && mttInfo.assessed && mttInfo.level !== null;
+    const hasEtt = ettInfo && ettInfo.assessed && ettInfo.level !== null;
+
+    let combinedLevel = 0;
+    const assessed = Boolean(hasMtt || hasEtt);
+
+    if (hasMtt && hasEtt) {
+      const totalWeight = internalWeight + externalWeight;
+      combinedLevel = totalWeight > 0
+        ? (mttInfo.level * (internalWeight / totalWeight)) + (ettInfo.level * (externalWeight / totalWeight))
+        : 0;
+    } else if (hasMtt) {
+      combinedLevel = mttInfo.level;
+    } else if (hasEtt) {
+      combinedLevel = ettInfo.level;
+    } else {
+      combinedLevel = 0;
+    }
 
     combinedCO[co.id] = {
       co_id: co.id,
       co_number: co.co_number,
       description: co.description,
-      internalLevel: hasMttData ? mttAttainment.perCo[co.id].level : null,
-      externalLevel: hasEttData ? ettAttainment.perCo[co.id].level : null,
+      internalLevel: hasMtt ? mttInfo.level : null,
+      externalLevel: hasEtt ? ettInfo.level : null,
       combinedLevel: parseFloat(combinedLevel.toFixed(2)),
+      assessed,
     };
-    directAttainmentSum += combinedLevel;
+
+    if (assessed) {
+      directAttainmentSum += combinedLevel;
+      assessedCoCount += 1;
+    }
   });
 
-  const overallCourseAttainment = numCos ? parseFloat((directAttainmentSum / numCos).toFixed(2)) : 0.00;
+  const overallCourseAttainment = assessedCoCount ? parseFloat((directAttainmentSum / assessedCoCount).toFixed(2)) : 0.00;
 
   const poResults = {};
+  const poPercentages = {};
   const poAverages = {};
   const poKeys = [
     ...Array.from({ length: 12 }, (_, i) => `po${i + 1}`),
@@ -108,7 +147,11 @@ function calculateCourseAttainment({ courseOutcomes, config, coPoAverages, mttSt
     const colAverage = coPoAverages ? (parseFloat(coPoAverages[`avg_${po}`]) || 0) : 0;
     poAverages[po] = colAverage;
     if (colAverage > 0) hasPoData = true;
-    poResults[po] = parseFloat((colAverage * overallCourseAttainment).toFixed(2));
+    // Standard NBA accreditation formula: (Average CO-PO correlation / 3) * Overall Direct Attainment
+    // This scales appropriately to a 0.00 - 3.00 point scale
+    const normalizedScore = colAverage > 0 ? (colAverage / 3.0) * overallCourseAttainment : 0.0;
+    poResults[po] = parseFloat(normalizedScore.toFixed(2));
+    poPercentages[po] = parseFloat(((normalizedScore / 3.0) * 100).toFixed(1));
   });
 
   return {
@@ -117,6 +160,7 @@ function calculateCourseAttainment({ courseOutcomes, config, coPoAverages, mttSt
     combinedCO,
     overallCourseAttainment,
     poResults,
+    poPercentages,
     poAverages,
     internalWeight,
     externalWeight,

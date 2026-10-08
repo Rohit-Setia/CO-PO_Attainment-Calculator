@@ -2,17 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  Loader2, CheckCircle2, XCircle, ShieldCheck, UserPlus, GraduationCap, ArrowLeft, AlertTriangle, UploadCloud,
+  Loader2, CheckCircle2, XCircle, ShieldCheck, UserPlus, GraduationCap, ArrowLeft, AlertTriangle, UploadCloud, Trash2, Download,
 } from 'lucide-react';
 import PageTransition from '../components/ui/PageTransition';
 import { Badge } from '../components/ui/badge';
 import { usePageHeader } from '../context/PageHeaderContext';
-import { fetchClasses } from '../Api/AttainmentApi';
+import { fetchClasses, downloadMarksTemplate } from '../Api/AttainmentApi';
 import {
   fetchQuestionPaperDetail, correctPaperQuestion, verifyPaper, approvePaper, rejectPaper, reuploadPaper,
   assignPaperResponsibility, assignClassToPaper, submitPaperMarks, lockPaperMarks, reopenPaperMarks,
+  deleteQuestionPaper,
 } from '../Api/examinationApi';
 import AutoMappingReview from '../components/examination/AutoMappingReview';
+import FacultyAutocompleteInput from '../components/common/FacultyAutocompleteInput';
 
 const RBT_LEVELS = ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'];
 const RESPONSIBILITIES = ['PAPER_REVIEWER', 'PAPER_VERIFIER', 'PAPER_APPROVER', 'MARKS_ENTRY', 'EVALUATOR', 'MODERATOR'];
@@ -62,10 +64,33 @@ export default function PaperReviewPage() {
   if (!data) return <PageTransition><p className="text-muted-foreground">Question paper not found.</p></PageTransition>;
 
   const {
-    paper, questions, assignments, marksSubmission, myResponsibilities, canOversee, awaitingConfirmation,
+    paper, questions, assignments, marksSubmission, marksSubmissions = [], myResponsibilities = [], myClassIds = [], canOversee, awaitingConfirmation,
   } = data;
   const canReview = canOversee || myResponsibilities.includes('PAPER_REVIEWER') || myResponsibilities.includes('PAPER_VERIFIER');
   const canApprove = canOversee || myResponsibilities.includes('PAPER_APPROVER') || (myResponsibilities.includes('PAPER_REVIEWER') && assignments.filter((a) => ['PAPER_REVIEWER', 'PAPER_APPROVER'].includes(a.responsibility)).length <= 1);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+
+  const handleDownloadTemplate = async (classId = null) => {
+    if (!paper?.course_id) return;
+    setDownloadingTemplate(true);
+    try {
+      const res = await downloadMarksTemplate(paper.course_id, paper.exam_type, classId);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const cleanSubject = (paper.subject_name || paper.file_name || 'Marks').replace(/\s+/g, '_');
+      link.setAttribute('download', `${cleanSubject}_${paper.exam_type}_Marks_Template.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success('Marks template downloaded.');
+    } catch (err) {
+      console.error('Failed to download marks template:', err);
+      toast.error('Failed to download marks template.');
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  };
 
   const withBusy = (fn) => async (...args) => {
     setBusy(true);
@@ -111,13 +136,31 @@ export default function PaperReviewPage() {
     const res = await assignClassToPaper(paper.id, selectedClass);
     toast.success(res.data.message);
   });
-  const handleSubmitMarks = withBusy(async () => { await submitPaperMarks(paper.id); toast.success('Marks submitted.'); });
-  const handleLock = withBusy(async () => { await lockPaperMarks(paper.id); toast.success('Marks locked.'); });
-  const handleReopen = withBusy(async () => {
+  const handleSubmitMarks = (classId = null) => withBusy(async () => {
+    await submitPaperMarks(paper.id, classId);
+    toast.success('Marks submitted.');
+  })();
+  const handleLock = (classId = null) => withBusy(async () => {
+    await lockPaperMarks(paper.id, classId);
+    toast.success('Marks locked.');
+  })();
+  const handleReopen = (classId = null) => withBusy(async () => {
     const reason = window.prompt('Reason for reopening marks entry:');
     if (!reason || !reason.trim()) return;
-    await reopenPaperMarks(paper.id, reason);
+    await reopenPaperMarks(paper.id, reason, classId);
     toast.success('Marks reopened for correction.');
+  })();
+  const handleDeletePaper = withBusy(async () => {
+    if (!window.confirm(`Are you sure you want to permanently delete question paper "${paper.file_name}"? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteQuestionPaper(paper.id);
+      toast.success('Question paper deleted.');
+      navigate('/examinations');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete question paper.');
+    }
   });
 
   return (
@@ -134,7 +177,20 @@ export default function PaperReviewPage() {
               {paper.exam_type} · {paper.paper_set || 'No set label'} · v{paper.version} · Max {paper.max_marks || '—'} marks · {paper.duration_minutes ? `${paper.duration_minutes} min` : '—'}
             </p>
           </div>
-          <Badge className={STATUS_TONE[paper.status] || ''}>{paper.status.replace(/_/g, ' ')}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge className={STATUS_TONE[paper.status] || ''}>{paper.status.replace(/_/g, ' ')}</Badge>
+            {canOversee && paper.status !== 'APPROVED' && (
+              <button
+                type="button"
+                onClick={handleDeletePaper}
+                disabled={busy}
+                className="flex items-center gap-1 rounded-xl border border-destructive/40 px-2.5 py-1 text-xs font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                title="Delete this question paper"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete
+              </button>
+            )}
+          </div>
         </div>
         {paper.extraction_confidence === 'low' && !awaitingConfirmation && (
           <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-700">
@@ -267,11 +323,15 @@ export default function PaperReviewPage() {
             {assignments.length === 0 && <p className="text-sm text-muted-foreground">No one is assigned yet.</p>}
           </div>
           <form onSubmit={handleAssign} className="flex flex-wrap items-center gap-2">
-            <input
-              type="email" required placeholder="teacher@ctuniversity.in" value={assignEmail}
-              onChange={(e) => setAssignEmail(e.target.value)}
-              className="w-64 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-            />
+            <div className="w-72">
+              <FacultyAutocompleteInput
+                value={assignEmail}
+                onChange={setAssignEmail}
+                onSelect={(user) => setAssignEmail(user.email)}
+                placeholder="Search teacher by name or email…"
+                required
+              />
+            </div>
             <select value={assignResp} onChange={(e) => setAssignResp(e.target.value)} className="rounded-xl border border-border bg-background px-3 py-2 text-sm">
               {RESPONSIBILITIES.map((r) => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
             </select>
@@ -292,30 +352,192 @@ export default function PaperReviewPage() {
       )}
 
       {/* Marks submission lifecycle */}
-      {paper.status === 'APPROVED' && (
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <h3 className="mb-3 text-base font-bold text-foreground">Marks Status</h3>
-          <p className="mb-4 text-sm">
-            <Badge variant="secondary">{marksSubmission?.status?.replace(/_/g, ' ') || 'NOT STARTED'}</Badge>
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {(myResponsibilities.includes('MARKS_ENTRY') || canOversee) && marksSubmission?.status !== 'LOCKED' && (
-              <>
-                <button type="button" onClick={() => navigate(`/courses/${paper.course_id}?tab=marks`)} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">Enter Marks</button>
-                {['NOT_STARTED', 'IN_PROGRESS', 'CORRECTION_REQUIRED'].includes(marksSubmission?.status) && (
-                  <button type="button" disabled={busy} onClick={handleSubmitMarks} className="rounded-xl border border-border bg-secondary px-4 py-2 text-sm font-semibold hover:bg-secondary/80 disabled:opacity-50">Submit Marks</button>
-                )}
-              </>
-            )}
-            {canOversee && marksSubmission?.status === 'SUBMITTED' && (
-              <button type="button" disabled={busy} onClick={handleLock} className="rounded-xl border border-border bg-secondary px-4 py-2 text-sm font-semibold hover:bg-secondary/80 disabled:opacity-50">Lock Marks</button>
-            )}
-            {canOversee && ['SUBMITTED', 'LOCKED'].includes(marksSubmission?.status) && (
-              <button type="button" disabled={busy} onClick={handleReopen} className="rounded-xl border border-amber-500/40 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-500/5 disabled:opacity-50">Reopen for Correction</button>
+      {paper.status === 'APPROVED' && (() => {
+        const classSubmissions = marksSubmissions.filter((m) => m.class_id !== null);
+        const hasClassScopedSubmissions = classSubmissions.length > 0;
+        const singleSub = marksSubmission || marksSubmissions.find((m) => m.class_id === null) || marksSubmissions[0];
+        const singleStatus = singleSub?.status || 'NOT_STARTED';
+
+        return (
+          <div className="rounded-2xl border border-border bg-card p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+              <div>
+                <h3 className="text-base font-bold text-foreground">Marks Entry & Submission Status</h3>
+                <p className="text-xs text-muted-foreground">
+                  {hasClassScopedSubmissions
+                    ? 'Track independent marks submission, verification, and lock status per allocated class section.'
+                    : 'Manage course marks entry, submission, locking, and download templates.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={downloadingTemplate}
+                onClick={() => handleDownloadTemplate(null)}
+                className="flex items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-secondary disabled:opacity-50"
+                title="Download pre-filled Excel template for this course and exam"
+              >
+                {downloadingTemplate ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                Download Marks Template
+              </button>
+            </div>
+
+            {hasClassScopedSubmissions ? (
+              <div className="overflow-x-auto rounded-xl border border-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-4 py-3">Class / Section</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Evaluator</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {classSubmissions.map((sub) => {
+                      const isMyClass = canOversee || myClassIds.includes(sub.class_id) || (myResponsibilities.includes('MARKS_ENTRY') && myClassIds.length === 0);
+                      return (
+                        <tr key={sub.id} className="hover:bg-muted/20">
+                          <td className="px-4 py-3 font-semibold text-foreground">
+                            {sub.class_label || (sub.section ? `Section ${sub.section}` : `Class #${sub.class_id}`)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="secondary" className="text-xs font-medium">
+                              {sub.status.replace(/_/g, ' ')}
+                            </Badge>
+                            {sub.status === 'CORRECTION_REQUIRED' && sub.reopen_reason && (
+                              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                <b>Reopened:</b> {sub.reopen_reason}
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
+                            {sub.submitted_by_name || '—'}
+                            {sub.submitted_at && (
+                              <span className="block text-[10px]">
+                                Submitted {new Date(sub.submitted_at).toLocaleDateString()}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                              {isMyClass && sub.status !== 'LOCKED' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/courses/${paper.course_id}?tab=marks&classId=${sub.class_id}`)}
+                                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                                  >
+                                    Enter Marks
+                                  </button>
+                                  {['NOT_STARTED', 'IN_PROGRESS', 'CORRECTION_REQUIRED'].includes(sub.status) && (
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => handleSubmitMarks(sub.class_id)}
+                                      className="rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-semibold hover:bg-secondary/80 disabled:opacity-50"
+                                    >
+                                      Submit
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                              {canOversee && sub.status === 'SUBMITTED' && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => handleLock(sub.class_id)}
+                                  className="rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-semibold hover:bg-secondary/80 disabled:opacity-50"
+                                >
+                                  Lock
+                                </button>
+                              )}
+                              {canOversee && ['SUBMITTED', 'LOCKED'].includes(sub.status) && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => handleReopen(sub.class_id)}
+                                  className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-500/5 disabled:opacity-50"
+                                >
+                                  Reopen
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadTemplate(sub.class_id)}
+                                className="rounded-lg border border-border p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                                title="Download Excel template for this section"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border p-4">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Paper Marks Status</p>
+                  <Badge variant="secondary">
+                    {singleStatus.replace(/_/g, ' ') || 'NOT STARTED'}
+                  </Badge>
+                  {singleSub?.status === 'CORRECTION_REQUIRED' && singleSub?.reopen_reason && (
+                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                      <b>Reopened:</b> {singleSub.reopen_reason}
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(myResponsibilities.includes('MARKS_ENTRY') || canOversee) && singleStatus !== 'LOCKED' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/courses/${paper.course_id}?tab=marks`)}
+                        className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+                      >
+                        Enter Marks
+                      </button>
+                      {['NOT_STARTED', 'IN_PROGRESS', 'CORRECTION_REQUIRED'].includes(singleStatus) && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handleSubmitMarks(null)}
+                          className="rounded-xl border border-border bg-secondary px-4 py-2 text-sm font-semibold hover:bg-secondary/80 disabled:opacity-50"
+                        >
+                          Submit Marks
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {canOversee && singleStatus === 'SUBMITTED' && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleLock(null)}
+                      className="rounded-xl border border-border bg-secondary px-4 py-2 text-sm font-semibold hover:bg-secondary/80 disabled:opacity-50"
+                    >
+                      Lock Marks
+                    </button>
+                  )}
+                  {canOversee && ['SUBMITTED', 'LOCKED'].includes(singleStatus) && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleReopen(null)}
+                      className="rounded-xl border border-amber-500/40 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-500/5 disabled:opacity-50"
+                    >
+                      Reopen for Correction
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </PageTransition>
   );
 }
