@@ -140,9 +140,11 @@ export const importCourseJson  = (courseData) => axiosClient.post('/courses/impo
 
 // ── Marks Excel (Phase 5) — template download + validated import ──────────
 // Template is generated server-side from Course Enrollment (source of truth).
-export const downloadMarksTemplate = async (courseId, examType) => {
+export const downloadMarksTemplate = async (courseId, examType, classId = null) => {
+  const params = { examType };
+  if (classId) params.classId = classId;
   const res = await axiosClient.get(`/courses/${courseId}/marks-template`, {
-    params: { examType },
+    params,
     responseType: 'blob',
   });
   return res;

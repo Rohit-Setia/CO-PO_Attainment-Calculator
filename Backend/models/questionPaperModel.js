@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const fs = require('fs');
 
 const createQuestionPaper = async ({
   courseId, examType, paperSet, maxMarks, durationMinutes,
@@ -99,8 +100,15 @@ const listQuestionPapers = async (filters = {}) => {
   if (filters.semester) { conditions.push('c.semester = ?'); params.push(filters.semester); }
   let joins = '';
   if (filters.assignedUserId) {
-    joins = 'JOIN paper_assignments my_pa ON my_pa.question_paper_id = qp.id AND my_pa.user_id = ?';
-    params.unshift(filters.assignedUserId);
+    joins = `JOIN (
+      SELECT question_paper_id FROM paper_assignments WHERE user_id = ?
+      UNION
+      SELECT qp_c.id AS question_paper_id FROM question_papers qp_c
+      JOIN courses c_c ON c_c.id = qp_c.course_id
+      LEFT JOIN user_course_assignments uca_c ON uca_c.course_id = c_c.id
+      WHERE c_c.teacher_id = ? OR uca_c.user_id = ?
+    ) my_pa ON my_pa.question_paper_id = qp.id`;
+    params.unshift(filters.assignedUserId, filters.assignedUserId, filters.assignedUserId);
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -197,9 +205,28 @@ const getStats = async (scope = {}) => {
   };
 };
 
+const deleteQuestionPaper = async (id) => {
+  const paper = await getQuestionPaperById(id);
+  if (!paper) return false;
+
+  // Attempt to delete physical file if present
+  if (paper.file_path && fs.existsSync(paper.file_path)) {
+    try {
+      fs.unlinkSync(paper.file_path);
+    } catch (err) {
+      console.warn('Could not remove physical file for question paper:', err.message);
+    }
+  }
+
+  // Deleting the question_papers row cascades to paper_assignments, question_configs, drafts
+  const [result] = await pool.query('DELETE FROM question_papers WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+};
+
 module.exports = {
   createQuestionPaper,
   getQuestionPaperById,
+  deleteQuestionPaper,
   setExtractionResult,
   isAwaitingConfirmation,
   saveExtractionDraft,

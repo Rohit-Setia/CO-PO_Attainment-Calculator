@@ -42,7 +42,8 @@ const {
   replaceQuestionConfigs,
   isLockedByApprovedPaper,
 } = require('../models/questionConfigModel');
-const { findBlockingSubmission } = require('../models/marksSubmissionModel');
+const { findBlockingSubmission, createForPaperClasses } = require('../models/marksSubmissionModel');
+const { getAllocatedClassesForPaper } = require('../models/paperAssignmentModel');
 const { calculateCourseAttainment } = require('../utils/attainmentCalculator');
 const { distributeTotalMarksToCos, calculateExamTotalMax } = require('../utils/marksDistribution');
 const pool = require('../config/db');
@@ -316,6 +317,24 @@ router.post('/courses/:id/assign', protect, checkCoursePermission(['Teacher']), 
     }
 
     await assignUserToCourse(courseId, targetUser.id, assigned_role);
+
+    // If assigned as Teacher, sync any pre-existing approved question papers so marks entry is available
+    if (assigned_role === 'Teacher') {
+      try {
+        const [existingPapers] = await pool.query(
+          "SELECT id FROM question_papers WHERE course_id = ? AND status = 'APPROVED'",
+          [courseId],
+        );
+        for (const p of existingPapers) {
+          const allocatedClasses = await getAllocatedClassesForPaper(p.id);
+          if (allocatedClasses.length > 0) {
+            await createForPaperClasses(p.id, courseId, allocatedClasses.map((c) => c.class_id));
+          }
+        }
+      } catch (syncErr) {
+        console.warn('Syncing existing course papers for new teacher:', syncErr.message);
+      }
+    }
 
     // Send in-app notification and email to the assigned user
     try {

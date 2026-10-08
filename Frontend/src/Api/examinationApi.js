@@ -12,9 +12,31 @@ export const uploadQuestionPaper = (file, { courseId, examType, paperSet }) => {
   });
 };
 
+export const previewBulkQuestionPapers = (files, { departmentId, programId, examType, academicYear } = {}) => {
+  const fd = new FormData();
+  files.forEach((f) => fd.append('files', f));
+  if (departmentId) fd.append('departmentId', departmentId);
+  if (programId) fd.append('programId', programId);
+  if (examType) fd.append('examType', examType);
+  if (academicYear) fd.append('academicYear', academicYear);
+  return axiosClient.post('/examinations/papers/bulk-preview', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+export const importBulkQuestionPapers = (files, mappings) => {
+  const fd = new FormData();
+  files.forEach((f) => fd.append('files', f));
+  fd.append('mappings', JSON.stringify(mappings));
+  return axiosClient.post('/examinations/papers/bulk-import', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
 // filters: { courseId, examType, status, programId, semester, schoolId, departmentId }
 export const fetchQuestionPapers = (filters = {}) => axiosClient.get('/examinations/papers', { params: filters });
 export const fetchQuestionPaperDetail = (paperId) => axiosClient.get(`/examinations/papers/${paperId}`);
+export const deleteQuestionPaper = (paperId) => axiosClient.delete(`/examinations/papers/${paperId}`);
 
 // ── My assignments (Teacher "My Assigned Examinations") ─────────────────────
 export const fetchMyExamAssignments = () => axiosClient.get('/examinations/my-assignments');

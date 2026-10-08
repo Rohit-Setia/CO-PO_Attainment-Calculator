@@ -301,29 +301,29 @@ export default function AttainmentTab({
                       {co.description || `Course Outcome ${co.co_number}`}
                     </td>
                     <td className="border-r border-border px-4 py-3 text-center">
-                      {hasMttData && mtt ? getLevelBadge(mtt.level) : <span className="text-xs text-muted-foreground">—</span>}
+                      {hasMttData && mtt && mtt.assessed !== false ? getLevelBadge(mtt.level) : <span className="text-xs text-muted-foreground">{mtt?.assessed === false ? 'N/A' : '—'}</span>}
                     </td>
                     <td className="border-r border-border px-4 py-3 text-center text-xs">
-                      {hasMttData && mtt ? (
+                      {hasMttData && mtt && mtt.assessed !== false ? (
                         <div>
                           <span className="font-semibold text-foreground">{mtt.percentAbove}%</span>
                           <span className="block text-[10px] text-muted-foreground">({mtt.studentsAboveThreshold}/{mtt.totalStudents} ≥ {mtt.thresholdMarks}m)</span>
                         </div>
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-xs text-muted-foreground">{mtt?.assessed === false ? 'Not Assessed' : '—'}</span>
                       )}
                     </td>
                     <td className="border-r border-border px-4 py-3 text-center">
-                      {hasEttData && ett ? getLevelBadge(ett.level) : <span className="text-xs text-muted-foreground">—</span>}
+                      {hasEttData && ett && ett.assessed !== false ? getLevelBadge(ett.level) : <span className="text-xs text-muted-foreground">{ett?.assessed === false ? 'N/A' : '—'}</span>}
                     </td>
                     <td className="border-r border-border px-4 py-3 text-center text-xs">
-                      {hasEttData && ett ? (
+                      {hasEttData && ett && ett.assessed !== false ? (
                         <div>
                           <span className="font-semibold text-foreground">{ett.percentAbove}%</span>
                           <span className="block text-[10px] text-muted-foreground">({ett.studentsAboveThreshold}/{ett.totalStudents} ≥ {ett.thresholdMarks}m)</span>
                         </div>
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-xs text-muted-foreground">{ett?.assessed === false ? 'Not Assessed' : '—'}</span>
                       )}
                     </td>
                     <td className="border-r border-border bg-primary/5 px-4 py-3 text-center font-bold text-primary">
@@ -487,8 +487,13 @@ export default function AttainmentTab({
                     <div key={poKey} className="rounded-xl border border-border bg-muted/30 p-3 text-center hover:border-primary/40 transition-colors" title={def.title || def.description || ''}>
                       <p className="text-xs font-bold text-muted-foreground">{def.code}</p>
                       <p className="mt-1 text-xl font-extrabold text-primary">{Number(val).toFixed(2)}</p>
+                      <p className="text-[10px] font-semibold text-primary/80">
+                        {attainment.poPercentages?.[poKey] !== undefined
+                          ? `${attainment.poPercentages[poKey]}%`
+                          : `${((Number(val) / 3) * 100).toFixed(0)}%`}
+                      </p>
                       {avg !== undefined && (
-                        <p className="mt-0.5 text-[10px] text-muted-foreground">Avg: {Number(avg).toFixed(2)}</p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">Corr: {Number(avg).toFixed(2)}</p>
                       )}
                     </div>
                   );
@@ -505,8 +510,13 @@ export default function AttainmentTab({
                     <div key={psoKey} className="rounded-xl border border-border bg-muted/30 p-3 text-center hover:border-warning/40 transition-colors" title={def.title || def.description || ''}>
                       <p className="text-xs font-bold text-muted-foreground">{def.code}</p>
                       <p className="mt-1 text-xl font-extrabold text-amber-500">{Number(val).toFixed(2)}</p>
+                      <p className="text-[10px] font-semibold text-amber-600/80">
+                        {attainment.poPercentages?.[psoKey] !== undefined
+                          ? `${attainment.poPercentages[psoKey]}%`
+                          : `${((Number(val) / 3) * 100).toFixed(0)}%`}
+                      </p>
                       {avg !== undefined && (
-                        <p className="mt-0.5 text-[10px] text-muted-foreground">Avg: {Number(avg).toFixed(2)}</p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">Corr: {Number(avg).toFixed(2)}</p>
                       )}
                     </div>
                   );
